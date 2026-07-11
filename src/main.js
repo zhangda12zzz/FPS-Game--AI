@@ -51,24 +51,72 @@ startBtn.addEventListener('click', async () => {
   }
 });
 
-// 点击画面重新获取指针锁定
+// === 暂停 / 继续 ===
+const pauseBtn = document.getElementById('pause-btn');
+const pauseOverlay = document.getElementById('pause-overlay');
+
+function setPauseUI(paused) {
+  if (pauseBtn) {
+    pauseBtn.textContent = paused ? '▶' : '❚❚';
+    pauseBtn.classList.toggle('paused', paused);
+  }
+  pauseOverlay?.classList.toggle('show', paused);
+}
+
+function togglePause() {
+  if (!game) return;
+  const paused = game.togglePause();
+  setPauseUI(paused);
+  if (paused) {
+    // 暂停时释放指针锁，让玩家能点击其他按钮
+    if (document.pointerLockElement) document.exitPointerLock();
+  } else {
+    canvas.requestPointerLock();
+  }
+}
+
+pauseBtn?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  // 避免与点击画面重新锁定指针锁冲突
+  togglePause();
+  // 点击后立即失焦，避免空格/回车（跳跃键）再次“点击”按钮而误触发暂停
+  pauseBtn.blur();
+});
+
+// 点击画面重新获取指针锁定（仅在未暂停时）
 canvas.addEventListener('click', () => {
-  if (startScreen.style.display === 'none') {
+  if (startScreen.style.display === 'none' && !game?.isGamePaused()) {
     canvas.requestPointerLock();
   }
 });
 
-// ESC退出时显示提示
+// ESC 退出指针锁 → 自动暂停；重新锁定 → 自动继续
 document.addEventListener('pointerlockchange', () => {
-  if (!document.pointerLockElement && startScreen.style.display === 'none') {
-    // 可以添加暂停菜单
+  if (!game || startScreen.style.display !== 'none') return;
+  if (!document.pointerLockElement) {
+    // 释放锁 → 进入暂停。
+    // 仅在“正常游玩”时才视为 Esc 主动暂停；
+    // 爆炸特效(exploding)与结算(gameOver)也会释放指针锁，此时不应显示暂停页面
+    if (!game.isGamePaused() && !game.gameOver && !game.exploding) {
+      game.togglePause();
+      setPauseUI(true);
+    }
+  } else {
+    // 重新锁定 → 继续，并清除按钮焦点，避免空格/回车误触发 HUD 按钮
+    if (document.activeElement && document.activeElement !== document.body) {
+      document.activeElement.blur();
+    }
+    if (game.isGamePaused()) {
+      game.togglePause();
+      setPauseUI(false);
+    }
   }
 });
 
 // 结算界面“重新开始”按钮
 document.getElementById('result-restart')?.addEventListener('click', () => {
   if (!game) return;
-  game.audioFx?.resume();
   game.resetGame();
+  setPauseUI(false);
   canvas.requestPointerLock();
 });

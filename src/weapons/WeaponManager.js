@@ -52,6 +52,7 @@ export class WeaponManager {
     this.aimT = 0;
     if (this.weaponMesh) {
       if (this.currentWeapon.hipPos) this.weaponMesh.position.copy(this.currentWeapon.hipPos);
+      this.weaponMesh.scale.setScalar(1); // 重置缩放，避免开镜残留的 scale 造成切枪闪大
       this.camera.add(this.weaponMesh);
     }
   }

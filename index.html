@@ -19,7 +19,7 @@
     /* === 小地图 === */
     #minimap {
       position: fixed; top: 12px; left: 12px;
-      width: 110px; height: 190px;
+      width: 125px; height: 215px;
       border: none;
       background: transparent;
       z-index: 150; pointer-events: none;
@@ -32,7 +32,8 @@
 
     /* === 控制按钮组 === */
     #control-buttons {
-      position: fixed; top: 214px; left: 12px;
+      position: fixed; top: 235px; left: 12px;
+      width: 125px;
       display: flex; flex-direction: column; gap: 4px;
       z-index: 150;
     }
@@ -104,6 +105,31 @@
       70% { transform: translate(-4px, 3px); }
       80% { transform: translate(4px, -3px); }
       90% { transform: translate(-2px, 2px); }
+    }
+
+    /* 暂停遮罩 */
+    #pause-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55);
+      display: none; align-items: center; justify-content: center;
+      z-index: 250; pointer-events: none;
+      color: #fff;
+    }
+    #pause-overlay.show {
+      display: flex;
+    }
+    #pause-overlay .title {
+      font-size: 64px; font-weight: bold; color: #ff0;
+      text-shadow: 0 0 20px rgba(255,255,0,0.4);
+      letter-spacing: 8px;
+      animation: pauseBlink 1.2s infinite alternate;
+    }
+    #pause-overlay .hint {
+      position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+      font-size: 14px; color: rgba(255,255,255,0.6);
+    }
+    @keyframes pauseBlink {
+      0% { opacity: 0.5; } 100% { opacity: 1; }
     }
 
     /* HUD */
@@ -343,14 +369,32 @@
     .key-hint:hover .kd { opacity: 1; max-width: 120px; }
     .key-hint.divider { height: 1px; background: rgba(255,255,255,0.1); margin: 2px 0; padding: 0; }
 
-    /* === 总音量调节 === */
-    #volume-control {
+    /* === 总音量调节 + 暂停按钮 === */
+    #top-right-controls {
       position: fixed; top: 12px; right: 12px;
+      display: flex; align-items: center; gap: 8px;
+      z-index: 300; pointer-events: none;
+    }
+    #pause-btn {
+      pointer-events: auto;
+      display: flex; align-items: center; justify-content: center;
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.45);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.85);
+      font-size: 16px; cursor: pointer;
+      transition: all 0.15s;
+      user-select: none;
+    }
+    #pause-btn:hover { background: rgba(0,0,0,0.75); color: #fff; border-color: #ff6600; }
+    #pause-btn.paused { color: #4f4; border-color: #4f4; }
+    #volume-control {
       display: flex; align-items: center; gap: 8px;
       padding: 6px 12px; border-radius: 18px;
       background: rgba(0,0,0,0.45);
       border: 1px solid rgba(255,255,255,0.12);
-      z-index: 300; pointer-events: auto;
+      pointer-events: auto;
       color: rgba(255,255,255,0.85);
       font-size: 12px; font-family: 'Consolas', monospace;
       user-select: none;
@@ -381,7 +425,7 @@
 
   <!-- 小地图 -->
   <div id="minimap">
-    <canvas id="minimap-canvas" width="110" height="190"></canvas>
+    <canvas id="minimap-canvas" width="175" height="190"></canvas>
     <div id="minimap-label">MAP</div>
   </div>
 
@@ -458,11 +502,20 @@
   <!-- 武器名称 -->
   <div id="hud-weapon-name">AK47-火麒麟</div>
 
-  <!-- 总音量调节 -->
-  <div id="volume-control">
-    <span id="volume-icon">🔊</span>
-    <input type="range" id="volume-slider" min="0" max="200" value="40">
-    <span id="volume-value">40</span>
+  <!-- 总音量调节 + 暂停按钮 -->
+  <div id="top-right-controls">
+    <button id="pause-btn" title="暂停 / 继续 (Esc)" tabindex="-1">❚❚</button>
+    <div id="volume-control">
+      <span id="volume-icon">🔊</span>
+      <input type="range" id="volume-slider" min="0" max="200" value="40">
+      <span id="volume-value">40</span>
+    </div>
+  </div>
+
+  <!-- 暂停遮罩 -->
+  <div id="pause-overlay">
+    <div class="title">暂 停</div>
+    <div class="hint">点击暂停按钮继续</div>
   </div>
 
   <!-- HUD -->

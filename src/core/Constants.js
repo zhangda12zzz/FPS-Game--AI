@@ -35,8 +35,8 @@ export const WEAPONS = {
     reserveAmmo: 20,
     reloadTime: 1000,
     recoil: 0.02,
-    adsFov: 58,                 // 右键开镜视野（手枪放大幅度较小）
-    adsPos: [0, -0.13, -0.26],  // 开镜时武器向中心、抵近瞳孔位置
+    adsFov: 45,                 // 右键开镜视野（手枪放大幅度较小）
+    adsPos: [0.05, -0.08, -0.40],  // 开镜时武器靠右、更远显小
     slot: 2,
     auto: false
   },
@@ -50,8 +50,8 @@ export const WEAPONS = {
     reserveAmmo: 50,
     reloadTime: 2000,
     recoil: 0.035,
-    adsFov: 50,                 // 右键开镜视野（步枪放大幅度较大）
-    adsPos: [0, -0.14, -0.30],  // 开镜时武器向中心、抵近瞳孔位置
+    adsFov: 38,                 // 右键开镜视野（步枪放大幅度较大）
+    adsPos: [0, -0.05, -0.38],  // 开镜时武器抵近瞳孔位置
     slot: 1,
     auto: true
   }

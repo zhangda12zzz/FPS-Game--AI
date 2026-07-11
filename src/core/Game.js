@@ -27,6 +27,7 @@ export class Game {
     this.input = new Input(canvas);
     this.clock = new THREE.Clock();
     this.isRunning = false;
+    this.isPaused = false;  // 暂停状态
 
     // 核心系统
     this.playerController = null;
@@ -169,15 +170,40 @@ export class Game {
   start() {
     if (this.isRunning) return;
     this.isRunning = true;
+    this.isPaused = false;
     this.clock.start();
     this.input.enablePointerLock();
     this.audioFx?.startBattleAmbience();
     this._gameLoop();
   }
 
+  /** 暂停 / 继续游戏 */
+  togglePause() {
+    if (!this.isRunning) return;
+    this.isPaused = !this.isPaused;
+    if (this.isPaused) {
+      // 暂停时释放时钟增量，避免恢复时一帧 dt 过大
+      this.clock.getDelta();
+      this.audioFx?.pause?.();
+    } else {
+      // 恢复时重置时钟
+      this.clock.getDelta();
+      this.audioFx?.resume?.();
+    }
+    return this.isPaused;
+  }
+
+  /** 查询是否处于暂停状态 */
+  isGamePaused() {
+    return this.isPaused;
+  }
+
   _gameLoop() {
     if (!this.isRunning) return;
     requestAnimationFrame(() => this._gameLoop());
+
+    // 暂停：保持循环不跑逻辑，但保留时钟与输入同步
+    if (this.isPaused) return;
 
     const dt = this.clock.getDelta();
 
@@ -216,8 +242,8 @@ export class Game {
     this._updateTimerDisplay();
     this._updateBombUI();
 
-    // 全歼判定 → 胜利（炸弹已安放时需先拆除才能胜利）
-    if (!this.gameOver && this.enemyManager.isCleared() && !this.bombManager?.isArmed) {
+    // 全歼判定 → 胜利（炸弹已安放时需先拆除才能胜利；炸弹已引爆/爆炸特效期间不得判胜）
+    if (!this.gameOver && !this.exploding && this.enemyManager.isCleared() && !this.bombManager?.isArmed) {
       this._endGame('win');
     }
 
@@ -518,6 +544,7 @@ export class Game {
 
   resetGame() {
     // 完全重置
+    this.isPaused = false; // 重置暂停状态
     this.kills = 0;
     this.deaths = 0;
     this.timer = 300;
@@ -849,8 +876,10 @@ export class Game {
     const spanX = b.maxX - b.minX; // 世界X跨度(长边) → 画布竖直方向
     const spanZ = b.maxZ - b.minZ; // 世界Z跨度(短边) → 画布水平方向
 
-    // 统一比例，保持真实长宽比；长边(X)映射到竖直方向
-    const scale = Math.min((w - pad * 2) / spanZ, (h - pad * 2) / spanX);
+    // 水平/竖直分开取比例，各自填满画布，避免长条地图居中后左右大片空缺
+    // 长边(X)映射到竖直方向，短边(Z)映射到水平方向并填满宽度（与下方按钮对齐）
+    const scaleZ = (w - pad * 2) / spanZ; // 水平方向每世界单位像素
+    const scaleX = (h - pad * 2) / spanX; // 竖直方向每世界单位像素
 
     const playerPos = this.playerController.getPosition();
     const yaw = this.playerController.yaw;
@@ -858,14 +887,14 @@ export class Game {
     // 世界坐标 → 小地图画布坐标（固定朝向，不随玩家旋转）
     // 世界+X → 画布上方；世界+Z → 画布右方；地图中心(0,0)对齐画布中心
     const cx0 = w / 2, cy0 = h / 2;
-    const toMap = (wx, wz) => [cx0 + wz * scale, cy0 - wx * scale];
+    const toMap = (wx, wz) => [cx0 + wz * scaleZ, cy0 - wx * scaleX];
 
     ctx.clearRect(0, 0, w, h);
 
     // 可移动区域范围矩形（半透明背景）
     const [rx0, ry0] = toMap(b.maxX, b.minZ); // 左上
-    const rectW = spanZ * scale;
-    const rectH = spanX * scale;
+    const rectW = spanZ * scaleZ;
+    const rectH = spanX * scaleX;
     ctx.save();
     ctx.beginPath();
     ctx.rect(rx0, ry0, rectW, rectH);
@@ -882,8 +911,8 @@ export class Game {
     ctx.fillStyle = 'rgba(150, 150, 120, 0.75)';
     this.mapObstacles.forEach(obs => {
       const [ocx, ocy] = toMap(obs.x, obs.z);
-      const ow = obs.d * scale; // Z跨度 → 水平宽度
-      const oh = obs.w * scale; // X跨度 → 竖直高度
+      const ow = obs.d * scaleZ; // Z跨度 → 水平宽度
+      const oh = obs.w * scaleX; // X跨度 → 竖直高度
       ctx.fillRect(ocx - ow / 2, ocy - oh / 2, ow, oh);
     });
 
@@ -892,7 +921,7 @@ export class Game {
       const [zx, zy] = toMap(this.plantZone.x, this.plantZone.z);
       ctx.strokeStyle = 'rgba(120, 170, 255, 0.8)';
       ctx.lineWidth = 1;
-      const zw = 16 * scale, zh = 8 * scale; // Z宽16, X长8
+      const zw = 16 * scaleZ, zh = 8 * scaleX; // Z宽16, X长8
       ctx.strokeRect(zx - zw / 2, zy - zh / 2, zw, zh);
     }
 
