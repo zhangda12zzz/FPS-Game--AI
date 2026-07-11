@@ -1,0 +1,515 @@
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+import { ENEMY, BOMB } from '../core/Constants.js';
+import { eventBus } from '../core/EventBus.js';
+
+const STATE = { IDLE: 'idle', PATROL: 'patrol', CHASE: 'chase', ATTACK: 'attack', DEAD: 'dead' };
+
+export class Enemy {
+  constructor(position, physics) {
+    this.health = ENEMY.HEALTH;
+    this.isDead = false;
+    this.state = STATE.PATROL;
+    this.physics = physics;
+    this.lastAttackTime = 0;
+    this.patrolTarget = null;
+    this.patrolTimer = 0;
+    this.enemyAttackEnabled = false;
+    this.deathTimer = 0;
+    this.originalMaterials = [];
+    this.hitmarkerTimer = 0;
+
+    // === 炸弹携带者/安包状态 ===
+    this.isCarrier = false;
+    this.isPlanting = false;
+    this.hasPlanted = false;     // 已完成安包（此后不再掉包）
+    this.plantProgress = 0;      // 0~PLANT_TIME(ms)
+    this.plantZone = null;       // THREE.Vector3 安包区中心
+    this.pickupTarget = null;    // 拾取掉落炸弹目标点
+    this.isCrouching = false;
+    this.canJump = false;
+
+    this.group = new THREE.Group();
+    this._createSoldierModel();
+    this.group.position.copy(position);
+
+    // 物理体
+    const shape = new CANNON.Sphere(0.5);
+    this.body = new CANNON.Body({ mass: 70, material: physics.groundMaterial, linearDamping: 0.9, angularDamping: 1.0 });
+    this.body.addShape(shape);
+    this.body.position.set(position.x, position.y + 1, position.z);
+    physics.addBody(this.body);
+
+    this.canJump = false;
+    this.body.addEventListener('collide', (e) => {
+      const contact = e.contact;
+      const normal = new CANNON.Vec3();
+      if (contact.bi === this.body) contact.ni.negate(normal); else normal.copy(contact.ni);
+      if (normal.y > 0.5) this.canJump = true;
+    });
+  }
+
+  _createSoldierModel() {
+    const g = this.group;
+    const olive = new THREE.MeshStandardMaterial({ color: 0x4a5a2a, roughness: 0.8 });
+    const darkOlive = new THREE.MeshStandardMaterial({ color: 0x3a4a1a, roughness: 0.85 });
+    const skin = new THREE.MeshStandardMaterial({ color: 0xd4a574, roughness: 0.7 });
+    const black = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
+    const red = new THREE.MeshStandardMaterial({ color: 0xcc2222, roughness: 0.6 });
+    const gunMetal = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8, roughness: 0.3 });
+    const belt = new THREE.MeshStandardMaterial({ color: 0x5a4a2a, roughness: 0.8 });
+
+    // === 头部 ===
+    // 头盔 (扁圆柱 + 帽檐)
+    const helmetGeo = new THREE.CylinderGeometry(0.22, 0.24, 0.15, 10);
+    this.helmet = new THREE.Mesh(helmetGeo, olive);
+    this.helmet.position.y = 1.65;
+    this.helmet.castShadow = true;
+    this.helmet.userData.isHead = true;
+    g.add(this.helmet);
+    // 帽檐
+    const brimGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.02, 12, 1, false, 0, Math.PI);
+    this.helmetBrim = new THREE.Mesh(brimGeo, darkOlive);
+    this.helmetBrim.position.set(0, 1.59, 0.12);
+    this.helmetBrim.rotation.x = -0.3;
+    this.helmetBrim.userData.isHead = true;
+    g.add(this.helmetBrim);
+    // 红色头巾 (敌方标识)
+    const bandanaGeo = new THREE.CylinderGeometry(0.235, 0.235, 0.04, 10);
+    this.bandana = new THREE.Mesh(bandanaGeo, red);
+    this.bandana.position.y = 1.57;
+    this.bandana.userData.isHead = true;
+    g.add(this.bandana);
+    // 面部
+    const faceGeo = new THREE.SphereGeometry(0.16, 8, 8);
+    this.face = new THREE.Mesh(faceGeo, skin);
+    this.face.position.set(0, 1.52, 0.08);
+    this.face.scale.set(1, 0.8, 0.9);
+    this.face.userData.isHead = true;
+    g.add(this.face);
+
+    // === 上身 ===
+    // 躯干 (战术背心)
+    const torsoGeo = new THREE.BoxGeometry(0.5, 0.55, 0.3);
+    const torso = new THREE.Mesh(torsoGeo, olive);
+    torso.position.y = 1.1;
+    torso.castShadow = true;
+    g.add(torso);
+    // 双肩
+    for (let side = -1; side <= 1; side += 2) {
+      const shoulderGeo = new THREE.SphereGeometry(0.1, 8, 6);
+      const shoulder = new THREE.Mesh(shoulderGeo, darkOlive);
+      shoulder.position.set(side * 0.3, 1.3, 0);
+      g.add(shoulder);
+    }
+    // 红色臂章 (左臂)
+    const armbandGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.03, 8);
+    const armband = new THREE.Mesh(armbandGeo, red);
+    armband.position.set(-0.35, 1.2, 0);
+    armband.rotation.z = Math.PI / 2;
+    g.add(armband);
+
+    // 胸前弹匣袋 (2-3小方块)
+    for (let i = 0; i < 3; i++) {
+      const pouchGeo = new THREE.BoxGeometry(0.08, 0.1, 0.06);
+      const pouch = new THREE.Mesh(pouchGeo, darkOlive);
+      pouch.position.set(-0.1 + i * 0.1, 1.0, 0.18);
+      g.add(pouch);
+    }
+
+    // 背后背包
+    const backpackGeo = new THREE.BoxGeometry(0.3, 0.3, 0.15);
+    const backpack = new THREE.Mesh(backpackGeo, darkOlive);
+    backpack.position.set(0, 1.15, -0.22);
+    g.add(backpack);
+
+    // === 双臂 (持枪姿势) ===
+    // 右臂 (前伸握枪)
+    const rArmUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.25, 6), olive);
+    rArmUpper.position.set(0.32, 1.15, 0.05);
+    rArmUpper.rotation.x = 0.4;
+    g.add(rArmUpper);
+    const rArmLower = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.25, 6), olive);
+    rArmLower.position.set(0.3, 0.98, 0.2);
+    rArmLower.rotation.x = 0.8;
+    g.add(rArmLower);
+    // 右手
+    const rHand = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6), skin);
+    rHand.position.set(0.28, 0.88, 0.35);
+    g.add(rHand);
+
+    // 左臂 (托护木)
+    const lArmUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.25, 6), olive);
+    lArmUpper.position.set(-0.32, 1.15, 0.05);
+    lArmUpper.rotation.x = 0.6;
+    g.add(lArmUpper);
+    const lArmLower = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.22, 6), olive);
+    lArmLower.position.set(-0.25, 0.95, 0.25);
+    lArmLower.rotation.x = 1.0;
+    g.add(lArmLower);
+    const lHand = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6), skin);
+    lHand.position.set(-0.2, 0.85, 0.4);
+    g.add(lHand);
+
+    // === 武器 (简化步枪) ===
+    const gunBody = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 0.5), gunMetal);
+    gunBody.position.set(0.1, 0.92, 0.35);
+    g.add(gunBody);
+    const gunBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.3, 6), black);
+    gunBarrel.rotation.x = Math.PI / 2;
+    gunBarrel.position.set(0.1, 0.93, 0.65);
+    g.add(gunBarrel);
+    const gunMag = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.1, 0.05), gunMetal);
+    gunMag.position.set(0.1, 0.85, 0.3);
+    g.add(gunMag);
+    this.gunMuzzlePos = new THREE.Vector3(0.1, 0.93, 0.8);
+
+    // === 下身 ===
+    // 腰带
+    const beltGeo = new THREE.BoxGeometry(0.48, 0.06, 0.3);
+    const beltMesh = new THREE.Mesh(beltGeo, belt);
+    beltMesh.position.y = 0.8;
+    g.add(beltMesh);
+
+    // 大腿
+    for (let side = -1; side <= 1; side += 2) {
+      const thighGeo = new THREE.CylinderGeometry(0.08, 0.07, 0.35, 6);
+      const thigh = new THREE.Mesh(thighGeo, darkOlive);
+      thigh.position.set(side * 0.13, 0.58, 0);
+      g.add(thigh);
+      // 膝盖护具
+      const kneeGeo = new THREE.SphereGeometry(0.07, 6, 6);
+      const knee = new THREE.Mesh(kneeGeo, black);
+      knee.position.set(side * 0.13, 0.38, 0.04);
+      knee.scale.set(1, 0.8, 0.7);
+      g.add(knee);
+      // 小腿
+      const shinGeo = new THREE.CylinderGeometry(0.06, 0.055, 0.3, 6);
+      const shin = new THREE.Mesh(shinGeo, darkOlive);
+      shin.position.set(side * 0.13, 0.2, 0);
+      g.add(shin);
+      // 军靴
+      const bootGeo = new THREE.BoxGeometry(0.1, 0.08, 0.16);
+      const boot = new THREE.Mesh(bootGeo, black);
+      boot.position.set(side * 0.13, 0.04, 0.02);
+      g.add(boot);
+    }
+
+    // 收集所有材质用于闪白效果
+    g.traverse(child => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        this.originalMaterials.push({ mesh: child, color: child.material.color.clone() });
+      }
+    });
+  }
+
+  flashWhite() {
+    this.originalMaterials.forEach(({ mesh }) => {
+      mesh.material.emissive = new THREE.Color(0xffffff);
+      mesh.material.emissiveIntensity = 0.8;
+    });
+    setTimeout(() => {
+      this.originalMaterials.forEach(({ mesh }) => {
+        mesh.material.emissiveIntensity = 0;
+      });
+    }, 100);
+  }
+
+  /** 设为/取消炸弹携带者，同步背后炸弹包标记 */
+  setCarrier(flag) {
+    this.isCarrier = flag;
+    if (flag) {
+      this.pickupTarget = null;
+      if (!this.bombPack) this._createBombPack();
+      this.bombPack.visible = true;
+    } else {
+      this.isPlanting = false;
+      this.plantProgress = 0;
+      if (this.bombPack) this.bombPack.visible = false;
+    }
+  }
+
+  setPlantZone(vec) {
+    this.plantZone = vec ? vec.clone() : null;
+  }
+
+  /** 背后炸弹包（红色发光标记） */
+  _createBombPack() {
+    const packGeo = new THREE.BoxGeometry(0.22, 0.28, 0.14);
+    const packMat = new THREE.MeshStandardMaterial({
+      color: 0x992222, emissive: 0xff2200, emissiveIntensity: 0.6, roughness: 0.5
+    });
+    this.bombPack = new THREE.Mesh(packGeo, packMat);
+    this.bombPack.position.set(0, 1.15, -0.32); // 背包后侧
+    this.group.add(this.bombPack);
+  }
+
+  takeDamage(amount, killerInfo, hitObject) {
+    if (this.isDead) return;
+
+    // 根据命中部位计算伤害：伤害数值由武器配置传入（爆头已在开火时应用爆头伤害）
+    const isHead = this._isHeadMesh(hitObject);
+    const finalDamage = Math.round(amount);
+
+    this.health -= finalDamage;
+    this.flashWhite();
+
+    if (isHead) {
+      this.triggerHitmarker();
+    }
+
+    // 发射伤害数字事件
+    eventBus.emit('enemy:damaged', {
+      enemy: this,
+      damage: finalDamage,
+      worldPos: this.group.position.clone().add(new THREE.Vector3(0, 1.8, 0)),
+      isHeadshot: isHead
+    });
+
+    if (this.health <= 0) {
+      this.die(killerInfo);
+    } else {
+      this.state = STATE.CHASE;
+    }
+  }
+
+  die(killerInfo) {
+    this.isDead = true;
+    this.state = STATE.DEAD;
+    this.deathTimer = 10;
+    const wasHeadshot = killerInfo?.isHeadshot || false;
+
+    // 携带者阵亡且尚未完成安包 → 炸弹掉落（可被其他 AI 拾取）
+    if (this.isCarrier && !this.hasPlanted) {
+      const dropPos = this.group.position.clone();
+      dropPos.y = 0;
+      eventBus.emit('bomb:dropped', { position: dropPos, from: this });
+    }
+    this.isCarrier = false;
+    this.isPlanting = false;
+    if (this.bombPack) this.bombPack.visible = false;
+
+    eventBus.emit('enemy:killed', { enemy: this, killer: killerInfo, isHeadshot: wasHeadshot });
+    this.physics.removeBody(this.body);
+
+    // 爆头特殊死亡效果：慢动作倒地 + 延迟消失
+    if (wasHeadshot) {
+      // 爆头：身体向后仰倒，延迟更长
+      this.group.rotation.x = -0.3;
+      this.group.position.y -= 0.1;
+    }
+  }
+
+  update(dt, playerPosition) {
+    // 更新命中标记
+    this.updateHitmarker(dt);
+
+    if (this.isDead) {
+      // 倒地动画
+      if (this.deathTimer > 9.3) {
+        const t = (10 - this.deathTimer) / 0.7;
+        this.group.rotation.x = -Math.PI / 2 * Math.min(t, 1);
+        this.group.position.y = THREE.MathUtils.lerp(this.group.position.y, -0.3, t * 0.5);
+      }
+      this.deathTimer -= dt;
+      if (this.deathTimer <= 0) {
+        this.remove();
+      }
+      return;
+    }
+
+    // 同步物理
+    this.group.position.set(this.body.position.x, this.body.position.y - 0.5, this.body.position.z);
+
+    // 蹲伏时压低模型（与玩家一致的视觉反馈）
+    this._applyCrouchVisual(dt);
+
+    const distToPlayer = this.group.position.distanceTo(playerPosition);
+
+    // 最高优先级：前往拾取掉落的炸弹
+    if (this.pickupTarget) {
+      this._moveTowards(this.pickupTarget, ENEMY.SPEED, dt);
+      return;
+    }
+
+    // 携带者：前往玩家老家安包（未完成时覆盖普通状态机）
+    if (this.isCarrier && !this.hasPlanted && this.plantZone) {
+      this._carrierBehavior(dt);
+      return;
+    }
+    this.isCrouching = false;
+
+    switch (this.state) {
+      case STATE.PATROL: this._patrol(dt, playerPosition, distToPlayer); break;
+      case STATE.CHASE: this._chase(dt, playerPosition, distToPlayer); break;
+      case STATE.ATTACK: this._attack(dt, playerPosition, distToPlayer); break;
+    }
+  }
+
+  /** 携带者安包行为：靠近安包区→下蹲安包（可被击杀中断） */
+  _carrierBehavior(dt) {
+    const zone = this.plantZone;
+    const flat = this.group.position.clone(); flat.y = 0;
+    const dist = flat.distanceTo(zone);
+
+    if (dist <= BOMB.TRIGGER_RADIUS) {
+      // 到位：停步下蹲安包
+      this.body.velocity.x = 0; this.body.velocity.z = 0;
+      this.isCrouching = true;
+      this.isPlanting = true;
+      const dir = zone.clone().sub(this.group.position); dir.y = 0;
+      if (dir.length() > 0.01) this.group.rotation.y = Math.atan2(dir.x, dir.z);
+      this.plantProgress += dt * 1000;
+      if (this.plantProgress >= BOMB.PLANT_TIME) {
+        this.hasPlanted = true;
+        this.isPlanting = false;
+        this.isCrouching = false;
+        const bombPos = this.group.position.clone(); bombPos.y = 0;
+        eventBus.emit('bomb:plantComplete', { position: bombPos, from: this });
+      }
+    } else {
+      // 前往安包区
+      this.isPlanting = false;
+      this.isCrouching = false;
+      this.plantProgress = 0;
+      this._moveTowards(zone, ENEMY.SPEED, dt);
+    }
+  }
+
+  /** 朝目标点移动（水平），带卡住检测与侧向绕行避障 */
+  _moveTowards(target, speed, dt = 0.016) {
+    const pos = this.group.position;
+    const dir = target.clone().sub(pos); dir.y = 0;
+    if (dir.length() <= 0.1) { this.body.velocity.x = 0; this.body.velocity.z = 0; return; }
+    dir.normalize();
+
+    // 卡住检测：每 0.4s 采样一次实际位移，位移过小视为被障碍挡住
+    this._progT = (this._progT || 0) + dt;
+    if (!this._progPos) this._progPos = pos.clone();
+    if (this._progT >= 0.4) {
+      const moved = pos.distanceTo(this._progPos);
+      if (moved < 0.12 && (this._detourT || 0) <= 0) {
+        // 触发绕行：沿垂直方向侧移一段时间以绕开障碍
+        this._detourT = 1.0;
+        this._detourSign = pos.z >= 0 ? 1 : -1;
+        if (Math.abs(pos.z) < 1) this._detourSign = Math.random() < 0.5 ? 1 : -1;
+      }
+      this._progT = 0;
+      this._progPos = pos.clone();
+    }
+
+    let moveDir = dir.clone();
+    if ((this._detourT || 0) > 0) {
+      this._detourT -= dt;
+      // 垂直分量为主、前进分量为辅，绕过障碍
+      const perp = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(this._detourSign);
+      moveDir = dir.multiplyScalar(0.35).add(perp);
+      moveDir.y = 0; moveDir.normalize();
+    }
+
+    this.body.velocity.x = moveDir.x * speed;
+    this.body.velocity.z = moveDir.z * speed;
+    this.group.rotation.y = Math.atan2(moveDir.x, moveDir.z);
+  }
+
+  /** 蹲伏视觉：平滑压缩模型高度 */
+  _applyCrouchVisual(dt) {
+    const target = this.isCrouching ? 0.62 : 1.0;
+    const cur = this.group.scale.y;
+    this.group.scale.y = cur + (target - cur) * Math.min(1, dt * 12);
+  }
+
+  _patrol(dt, playerPos, dist) {
+    if (dist < ENEMY.DETECTION_RANGE) { this.state = STATE.CHASE; return; }
+    this.patrolTimer -= dt;
+    if (this.patrolTimer <= 0 || !this.patrolTarget) {
+      // 巡逻目标权重偏向玩家老家(+X)
+      const biasX = 4 + Math.random() * 14;   // 总体向 +X 推进
+      this.patrolTarget = new THREE.Vector3(
+        this.group.position.x + biasX, 0,
+        this.group.position.z + (Math.random() - 0.5) * 16
+      );
+      this.patrolTimer = 3 + Math.random() * 3;
+    }
+    const dir = this.patrolTarget.clone().sub(this.group.position); dir.y = 0;
+    if (dir.length() > 1) {
+      dir.normalize();
+      this.body.velocity.x = dir.x * ENEMY.SPEED * 0.6;
+      this.body.velocity.z = dir.z * ENEMY.SPEED * 0.6;
+      this.group.rotation.y = Math.atan2(dir.x, dir.z);
+    }
+  }
+
+  _chase(dt, playerPos, dist) {
+    if (dist > ENEMY.DETECTION_RANGE * 1.5) { this.state = STATE.PATROL; return; }
+    if (dist < ENEMY.ATTACK_RANGE) { this.state = STATE.ATTACK; return; }
+    const dir = playerPos.clone().sub(this.group.position); dir.y = 0; dir.normalize();
+    this.body.velocity.x = dir.x * ENEMY.SPEED;
+    this.body.velocity.z = dir.z * ENEMY.SPEED;
+    this.group.rotation.y = Math.atan2(dir.x, dir.z);
+  }
+
+  _attack(dt, playerPos, dist) {
+    if (dist > ENEMY.ATTACK_RANGE * 1.2) { this.state = STATE.CHASE; return; }
+    const dir = playerPos.clone().sub(this.group.position); dir.y = 0; dir.normalize();
+    this.group.rotation.y = Math.atan2(dir.x, dir.z);
+    this.body.velocity.x = 0; this.body.velocity.z = 0;
+
+    const now = Date.now();
+    if (this.enemyAttackEnabled && now - this.lastAttackTime >= ENEMY.FIRE_RATE) {
+      this.lastAttackTime = now;
+      // 敌人枪口位置(世界坐标)
+      const muzzleWorld = this.gunMuzzlePos.clone().applyMatrix4(this.group.matrixWorld);
+      eventBus.emit('enemy:attack', {
+        enemy: this, damage: ENEMY.DAMAGE, distance: dist,
+        muzzlePos: muzzleWorld
+      });
+    }
+  }
+
+  getMuzzleWorldPos() {
+    this.group.updateMatrixWorld(true);
+    return this.gunMuzzlePos.clone().applyMatrix4(this.group.matrixWorld);
+  }
+
+  remove() {
+    if (this.body) this.physics.removeBody(this.body);
+    if (this.group.parent) this.group.parent.remove(this.group);
+  }
+
+  // === 爆头检测与部位伤害 ===
+  _isHeadMesh(mesh) {
+    if (!mesh) return false;
+    if (mesh.userData && mesh.userData.isHead === true) return true;
+    return mesh === this.helmet || mesh === this.helmetBrim || mesh === this.bandana || mesh === this.face;
+  }
+
+
+  updateHitmarker(dt) {
+    if (this.hitmarkerTimer > 0) {
+      this.hitmarkerTimer -= dt;
+      if (this.hitmarkerTimer <= 0) {
+        this.hitmarkerTimer = 0;
+        // 清除头部mesh的红色发光
+        [this.helmet, this.helmetBrim, this.bandana, this.face].forEach(m => {
+          if (m && m.material) {
+            m.material.emissive = new THREE.Color(0x000000);
+            m.material.emissiveIntensity = 0;
+          }
+        });
+      }
+    }
+  }
+
+  triggerHitmarker() {
+    this.hitmarkerTimer = 0.3;
+    // 头部mesh变红发光
+    [this.helmet, this.helmetBrim, this.bandana, this.face].forEach(m => {
+      if (m && m.material) {
+        m.material.emissive = new THREE.Color(0xff0000);
+        m.material.emissiveIntensity = 0.8;
+      }
+    });
+  }
+}

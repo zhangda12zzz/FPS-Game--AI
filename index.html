@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CF FPS - 穿越火线风格射击游戏</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #000; font-family: 'Microsoft YaHei', sans-serif; }
+    #game-canvas { display: block; width: 100vw; height: 100vh; }
+
+    /* 准星 */
+    #crosshair {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none; z-index: 100;
+    }
+
+    /* === 小地图 === */
+    #minimap {
+      position: fixed; top: 12px; left: 12px;
+      width: 110px; height: 190px;
+      border: none;
+      background: transparent;
+      z-index: 150; pointer-events: none;
+    }
+    #minimap-canvas { width: 100%; height: 100%; display: block; }
+    #minimap-label {
+      position: absolute; bottom: 2px; right: 4px;
+      font-size: 8px; color: rgba(255,255,255,0.4);
+    }
+
+    /* === 控制按钮组 === */
+    #control-buttons {
+      position: fixed; top: 214px; left: 12px;
+      display: flex; flex-direction: column; gap: 4px;
+      z-index: 150;
+    }
+    .ctrl-btn {
+      padding: 5px 10px; font-size: 11px;
+      background: rgba(0,0,0,0.6); border: 1px solid #555;
+      border-radius: 3px; color: #ccc; cursor: pointer;
+      transition: all 0.15s; white-space: nowrap;
+      font-family: 'Microsoft YaHei', sans-serif;
+    }
+    .ctrl-btn:hover { background: rgba(60,60,60,0.8); border-color: #888; color: #fff; }
+    .ctrl-btn.active { border-color: #4f4; color: #4f4; }
+    .ctrl-btn.danger { border-color: #f44; color: #f44; }
+    .ctrl-btn .btn-key {
+      display: inline-block; width: 16px; height: 14px; line-height: 14px;
+      background: rgba(80,80,80,0.8); border: 1px solid #666; border-radius: 2px;
+      font-size: 8px; text-align: center; margin-right: 4px; vertical-align: middle;
+      font-family: 'Consolas', monospace; color: #aaa;
+    }
+
+    /* === 通知消息 === */
+    #notification {
+      position: fixed; top: 50px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.7); color: #fff; padding: 8px 24px;
+      border-radius: 4px; font-size: 16px; font-weight: bold;
+      pointer-events: none; z-index: 200;
+      opacity: 0; transition: opacity 0.3s;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    #notification.show { opacity: 1; }
+
+    /* === 黄金爆头提示（透明背景，无黑框） === */
+    #headshot-indicator {
+      position: fixed; top: 24%; left: 50%;
+      transform: translate(-50%, -50%) scale(0.6);
+      width: 300px; max-width: 44vw; height: auto;
+      pointer-events: none; z-index: 250;
+      opacity: 0; background: none; border: none;
+    }
+    #headshot-indicator.show { animation: headshotPop 0.85s ease-out forwards; }
+    @keyframes headshotPop {
+      0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.4) rotate(-6deg); }
+      18%  { opacity: 1; transform: translate(-50%, -50%) scale(1.15) rotate(2deg); }
+      36%  { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+      72%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -50%) scale(1.06); }
+    }
+
+    /* HUD */
+    #hud {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      height: 80px; pointer-events: none; z-index: 100;
+      display: flex; justify-content: space-between; align-items: flex-end;
+      padding: 0 20px 10px;
+    }
+    #hud-health {
+      display: flex; flex-direction: column; align-items: center;
+      color: #fff; font-size: 28px; font-weight: bold;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+    }
+    #hud-health .health-row { display: flex; align-items: center; gap: 8px; }
+    #hud-health .icon { font-size: 20px; color: #4f4; }
+    #hud-health .label { font-size: 10px; font-weight: normal; color: rgba(255,255,255,0.45); letter-spacing: 1px; margin-top: 2px; }
+    #hud-ammo {
+      display: flex; flex-direction: column; align-items: center;
+      color: #fff; font-size: 28px; font-weight: bold;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+    }
+    #hud-ammo .ammo-row { display: flex; align-items: baseline; gap: 4px; }
+    #hud-ammo .current { color: #ff0; font-size: 36px; }
+    #hud-ammo .separator { color: #aaa; margin: 0 2px; }
+    #hud-ammo .label { font-size: 10px; font-weight: normal; color: rgba(255,255,255,0.45); letter-spacing: 1px; margin-top: 2px; }
+    #hud-weapon-name {
+      position: fixed; bottom: 78px; right: 20px;
+      color: #ccc; font-size: 14px;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+      pointer-events: none; z-index: 100;
+    }
+
+    /* 击杀播报（左下角，血量上方区域，避免与右上角音量控件重合） */
+    #killfeed {
+      position: fixed; bottom: 104px; left: 20px;
+      pointer-events: none; z-index: 100;
+      display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+    }
+    .killfeed-item {
+      background: rgba(0,0,0,0.6); color: #fff;
+      padding: 4px 12px; border-radius: 3px;
+      font-size: 13px; white-space: nowrap;
+      animation: killfeedFade 4s forwards;
+    }
+    .killfeed-item .killer { color: #4cf; }
+    .killfeed-item .victim { color: #f44; }
+    .killfeed-item .weapon { color: #ff0; margin: 0 6px; }
+    .killfeed-item .headshot-tag { color: #f44; font-weight: bold; margin-left: 6px; }
+    @keyframes killfeedFade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+
+    /* 命中标记 */
+    #hitmarker {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none; z-index: 101; opacity: 0;
+    }
+    #hitmarker.show { animation: hitmarkerAnim 0.3s forwards; }
+    @keyframes hitmarkerAnim {
+      0% { opacity: 1; transform: translate(-50%, -50%) scale(1.5); }
+      100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+    }
+
+    /* 受伤特效 */
+    #damage-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      pointer-events: none; z-index: 99;
+      opacity: 0; transition: opacity 0.1s;
+      box-shadow: inset 0 0 100px rgba(255,0,0,0.6);
+    }
+    #damage-overlay.show { opacity: 1; }
+
+    /* 伤害数字 */
+    #damage-numbers { position: fixed; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 102; overflow: hidden; }
+    .dmg-num {
+      position: absolute; font-size: 18px; font-weight: bold;
+      color: #ff4; text-shadow: 1px 1px 2px #000, -1px -1px 2px #000;
+      animation: dmgFloat 1s forwards;
+    }
+    .dmg-num.headshot { color: #f44; font-size: 24px; }
+    @keyframes dmgFloat {
+      0% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-60px); }
+    }
+
+    /* 换弹进度条 */
+    #reload-bar {
+      position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
+      width: 200px; height: 6px;
+      background: rgba(0,0,0,0.6); border: 1px solid #555;
+      border-radius: 3px; z-index: 150;
+      display: none; pointer-events: none;
+    }
+    #reload-bar.show { display: block; }
+    #reload-fill {
+      height: 100%; background: linear-gradient(90deg, #ff0, #fa0);
+      border-radius: 2px; width: 0%; transition: width 0.05s linear;
+    }
+    #reload-text {
+      position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%);
+      color: #fff; font-size: 12px; z-index: 150;
+      pointer-events: none; display: none;
+      text-shadow: 1px 1px 2px #000;
+    }
+    #reload-text.show { display: block; }
+
+    /* 炸弹倒计时 */
+    #bomb-timer {
+      position: fixed; top: 90px; left: 50%; transform: translateX(-50%);
+      color: #ff3020; font-size: 34px; font-weight: bold;
+      text-shadow: 0 0 12px rgba(255,40,0,0.8), 2px 2px 4px #000;
+      pointer-events: none; z-index: 180; display: none;
+      font-family: 'Consolas', monospace;
+      animation: bombPulse 0.6s infinite alternate;
+    }
+    #bomb-timer.show { display: block; }
+    @keyframes bombPulse { 0% { transform: translateX(-50%) scale(1); } 100% { transform: translateX(-50%) scale(1.12); } }
+
+    /* 拆包进度条 */
+    #defuse-bar {
+      position: fixed; bottom: 140px; left: 50%; transform: translateX(-50%);
+      width: 220px; height: 8px;
+      background: rgba(0,0,0,0.6); border: 1px solid #3af;
+      border-radius: 4px; z-index: 150;
+      display: none; pointer-events: none;
+    }
+    #defuse-bar.show { display: block; }
+    #defuse-fill {
+      height: 100%; background: linear-gradient(90deg, #3af, #0fa);
+      border-radius: 3px; width: 0%;
+    }
+    #defuse-text {
+      position: fixed; bottom: 152px; left: 50%; transform: translateX(-50%);
+      color: #6cf; font-size: 13px; z-index: 150;
+      pointer-events: none; display: none;
+      text-shadow: 1px 1px 2px #000;
+    }
+    #defuse-text.show { display: block; }
+
+    /* 结算界面 */
+    #result-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.82);
+      display: none; flex-direction: column;
+      justify-content: center; align-items: center;
+      z-index: 900; color: #fff;
+    }
+    #result-overlay.show { display: flex; }
+    #result-title { font-size: 60px; font-weight: bold; margin-bottom: 16px; text-shadow: 0 0 24px rgba(0,0,0,0.6); }
+    #result-title.win { color: #4f4; text-shadow: 0 0 24px rgba(80,255,80,0.6); }
+    #result-title.lose { color: #f44; text-shadow: 0 0 24px rgba(255,60,60,0.6); }
+    #result-desc { font-size: 18px; color: #ccc; margin-bottom: 36px; }
+    #result-restart {
+      padding: 14px 50px; font-size: 20px;
+      background: linear-gradient(180deg, #c94b0a, #8b3000);
+      border: 2px solid #ff6600; border-radius: 5px;
+      color: #fff; cursor: pointer; font-weight: bold; transition: all 0.2s;
+    }
+    #result-restart:hover { background: linear-gradient(180deg, #e05500, #a03800); transform: scale(1.05); }
+
+    /* 计分板 */
+    #scoreboard {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.85); color: #fff;
+      padding: 20px 40px; border-radius: 8px;
+      border: 1px solid #444; min-width: 300px;
+      pointer-events: none; z-index: 200; display: none;
+    }
+    #scoreboard.show { display: block; }
+    #scoreboard h3 { text-align: center; margin-bottom: 10px; color: #4cf; }
+    #scoreboard table { width: 100%; border-collapse: collapse; }
+    #scoreboard th, #scoreboard td { padding: 6px 12px; text-align: center; }
+    #scoreboard th { color: #ff0; border-bottom: 1px solid #444; }
+
+    /* 回合信息 */
+    #round-info {
+      position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+      color: #fff; font-size: 18px; font-weight: bold;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+      pointer-events: none; z-index: 100;
+      display: flex; gap: 30px; align-items: center;
+    }
+    #round-info .info-block { display: flex; flex-direction: column; align-items: center; }
+    #round-info .info-block .label { font-size: 9px; font-weight: normal; color: rgba(255,255,255,0.4); letter-spacing: 1px; margin-top: 2px; }
+    #round-info .timer { color: #ff0; font-size: 24px; }
+    #round-info .score { color: #4cf; }
+    #round-info .enemy-count { color: #f88; }
+
+
+    /* 开始画面 */
+    #start-screen {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      display: flex; flex-direction: column;
+      justify-content: center; align-items: center;
+      z-index: 1000; color: #fff;
+    }
+    #start-screen h1 { font-size: 64px; color: #ff0; text-shadow: 0 0 20px rgba(255,255,0,0.5); margin-bottom: 10px; }
+    #start-screen .subtitle { font-size: 18px; color: #aaa; margin-bottom: 40px; }
+    #start-screen .start-btn {
+      padding: 15px 60px; font-size: 22px;
+      background: linear-gradient(180deg, #c94b0a, #8b3000);
+      border: 2px solid #ff6600; border-radius: 5px;
+      color: #fff; cursor: pointer; font-weight: bold; transition: all 0.2s;
+    }
+    #start-screen .start-btn:hover { background: linear-gradient(180deg, #e05500, #a03800); transform: scale(1.05); }
+    #start-screen .controls { margin-top: 40px; font-size: 13px; color: #888; text-align: center; line-height: 2; }
+
+    /* === 右侧按键提示面板 === */
+    #key-hints {
+      position: fixed; right: 12px; top: 42%;
+      transform: translateY(-50%);
+      display: flex; flex-direction: column; gap: 3px;
+      z-index: 150; pointer-events: auto;
+    }
+    .key-hint {
+      display: flex; align-items: center; gap: 6px;
+      padding: 3px 8px; border-radius: 3px;
+      background: rgba(0,0,0,0.35);
+      transition: background 0.15s;
+    }
+    .key-hint:hover { background: rgba(0,0,0,0.7); }
+    .key-hint .hk {
+      width: 26px; height: 22px;
+      background: linear-gradient(180deg, rgba(60,60,60,0.9), rgba(30,30,30,0.95));
+      border: 1px solid #555; border-radius: 3px;
+      font-size: 10px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      color: rgba(255,255,255,0.75);
+      font-family: 'Consolas', monospace; flex-shrink: 0;
+    }
+    .key-hint .kd {
+      font-size: 10px; color: rgba(255,255,255,0.5);
+      white-space: nowrap; opacity: 0; max-width: 0;
+      transition: all 0.2s; overflow: hidden;
+    }
+    .key-hint:hover .kd { opacity: 1; max-width: 120px; }
+    .key-hint.divider { height: 1px; background: rgba(255,255,255,0.1); margin: 2px 0; padding: 0; }
+
+    /* === 总音量调节 === */
+    #volume-control {
+      position: fixed; top: 12px; right: 12px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 12px; border-radius: 18px;
+      background: rgba(0,0,0,0.45);
+      border: 1px solid rgba(255,255,255,0.12);
+      z-index: 300; pointer-events: auto;
+      color: rgba(255,255,255,0.85);
+      font-size: 12px; font-family: 'Consolas', monospace;
+      user-select: none;
+    }
+    #volume-icon { font-size: 15px; line-height: 1; }
+    #volume-slider {
+      -webkit-appearance: none; appearance: none;
+      width: 110px; height: 5px; border-radius: 3px;
+      background: rgba(255,255,255,0.25);
+      outline: none; cursor: pointer; margin: 0;
+    }
+    #volume-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #ff6600; border: 2px solid #fff; cursor: pointer;
+      box-shadow: 0 0 4px rgba(255,102,0,0.6);
+    }
+    #volume-slider::-moz-range-thumb {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #ff6600; border: 2px solid #fff; cursor: pointer;
+    }
+    #volume-value { width: 28px; text-align: right; color: #ffb066; }
+  </style>
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+  <canvas id="crosshair" width="40" height="40"></canvas>
+
+  <!-- 小地图 -->
+  <div id="minimap">
+    <canvas id="minimap-canvas" width="110" height="190"></canvas>
+    <div id="minimap-label">MAP</div>
+  </div>
+
+  <!-- 控制按钮组 -->
+  <div id="control-buttons">
+    <button class="ctrl-btn" id="btn-enemy-attack" tabindex="-1">
+      <span class="btn-key">F2</span>敌人攻击: 关
+    </button>
+    <button class="ctrl-btn" id="btn-enemy-reset" tabindex="-1">
+      <span class="btn-key">F4</span>重置敌人
+    </button>
+    <button class="ctrl-btn danger" id="btn-reset-game" tabindex="-1">
+      <span class="btn-key">F5</span>重新开始
+    </button>
+  </div>
+
+  <!-- 通知消息 -->
+  <div id="notification"></div>
+
+  <!-- 黄金爆头提示（透明） -->
+  <img id="headshot-indicator" src="/images/headshot_gold.svg" alt="Headshot" />
+
+  <!-- 命中标记 -->
+  <svg id="hitmarker" width="30" height="30" viewBox="0 0 30 30">
+    <line x1="8" y1="8" x2="13" y2="13" stroke="white" stroke-width="2"/>
+    <line x1="22" y1="8" x2="17" y2="13" stroke="white" stroke-width="2"/>
+    <line x1="8" y1="22" x2="13" y2="17" stroke="white" stroke-width="2"/>
+    <line x1="22" y1="22" x2="17" y2="17" stroke="white" stroke-width="2"/>
+  </svg>
+
+  <!-- 受伤特效 -->
+  <div id="damage-overlay"></div>
+
+  <!-- 伤害数字容器 -->
+  <div id="damage-numbers"></div>
+
+  <!-- 击杀播报 -->
+  <div id="killfeed"></div>
+
+  <!-- 换弹进度条 -->
+  <div id="reload-text">换弹中...</div>
+  <div id="reload-bar"><div id="reload-fill"></div></div>
+
+  <!-- 炸弹倒计时 -->
+  <div id="bomb-timer">炸弹 00:15</div>
+
+  <!-- 拆包进度条 -->
+  <div id="defuse-text">拆除中...</div>
+  <div id="defuse-bar"><div id="defuse-fill"></div></div>
+
+  <!-- 结算界面 -->
+  <div id="result-overlay">
+    <div id="result-title"></div>
+    <div id="result-desc"></div>
+    <button id="result-restart">重新开始</button>
+  </div>
+
+  <!-- 回合信息 -->
+  <div id="round-info">
+    <div class="info-block">
+      <span class="score" id="score-display">0 / 0</span>
+      <span class="label">击杀 / 死亡</span>
+    </div>
+    <div class="info-block">
+      <span class="timer" id="timer-display">5:00</span>
+      <span class="label">剩余时间</span>
+    </div>
+    <div class="info-block">
+      <span class="enemy-count"><span id="enemy-alive">5</span> / <span id="enemy-total">20</span></span>
+      <span class="label">在场 / 敌人总数</span>
+    </div>
+  </div>
+
+  <!-- 武器名称 -->
+  <div id="hud-weapon-name">AK47-火麒麟</div>
+
+  <!-- 总音量调节 -->
+  <div id="volume-control">
+    <span id="volume-icon">🔊</span>
+    <input type="range" id="volume-slider" min="0" max="100" value="40">
+    <span id="volume-value">40</span>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div id="hud-health">
+      <div class="health-row">
+        <span class="icon">+</span>
+        <span id="health-value">100</span>
+      </div>
+      <span class="label">HEALTH 生命值</span>
+    </div>
+    <div id="hud-ammo">
+      <div class="ammo-row">
+        <span class="current" id="ammo-current">40</span>
+        <span class="separator">/</span>
+        <span id="ammo-reserve">50</span>
+      </div>
+      <span class="label">AMMO 弹匣 / 备弹</span>
+    </div>
+  </div>
+
+  <!-- 计分板 -->
+  <div id="scoreboard">
+    <h3>计分板</h3>
+    <table>
+      <thead><tr><th>玩家</th><th>击杀</th><th>死亡</th></tr></thead>
+      <tbody id="scoreboard-body"></tbody>
+    </table>
+  </div>
+
+  <!-- 开始画面 -->
+  <div id="start-screen">
+    <h1>穿越火线</h1>
+    <div class="subtitle">CF风格第一人称射击游戏</div>
+    <button class="start-btn" id="start-btn">开始游戏</button>
+    <div class="controls">
+      WASD 移动 | 鼠标视角 | 左键射击 | 空格跳跃 | Ctrl 下蹲 | Shift 冲刺<br>
+      1/2/3 切换武器 | R 换弹 | E 拆包 | F2 敌人攻击 | F4 重置敌人 | F5 重新开始 | Tab 计分板
+    </div>
+  </div>
+
+  <!-- 右侧按键提示面板 -->
+  <div id="key-hints">
+    <div class="key-hint"><div class="hk">1</div><div class="kd">主武器 步枪</div></div>
+    <div class="key-hint"><div class="hk">2</div><div class="kd">副武器 手枪</div></div>
+    <div class="key-hint"><div class="hk">3</div><div class="kd">近战 匕首</div></div>
+    <div class="key-hint divider"></div>
+    <div class="key-hint"><div class="hk">R</div><div class="kd">换弹</div></div>
+    <div class="key-hint"><div class="hk">E</div><div class="kd">拆包</div></div>
+    <div class="key-hint divider"></div>
+    <div class="key-hint"><div class="hk">⇧</div><div class="kd">冲刺</div></div>
+    <div class="key-hint"><div class="hk">␣</div><div class="kd">跳跃</div></div>
+    <div class="key-hint"><div class="hk" style="font-size:8px;">Ctrl</div><div class="kd">下蹲</div></div>
+    <div class="key-hint divider"></div>
+    <div class="key-hint"><div class="hk">F2</div><div class="kd">敌人攻击开关</div></div>
+    <div class="key-hint"><div class="hk">F4</div><div class="kd">重置敌人</div></div>
+    <div class="key-hint"><div class="hk">F5</div><div class="kd">重新开始</div></div>
+    <div class="key-hint divider"></div>
+    <div class="key-hint"><div class="hk">Tab</div><div class="kd">计分板</div></div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

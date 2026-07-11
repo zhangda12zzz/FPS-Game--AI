@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 320" width="640" height="320">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fff7c4"/>
+      <stop offset="30%" stop-color="#ffdf5e"/>
+      <stop offset="62%" stop-color="#f0a81c"/>
+      <stop offset="100%" stop-color="#8f5600"/>
+    </linearGradient>
+    <linearGradient id="goldText" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fff8cc"/>
+      <stop offset="45%" stop-color="#ffcf3a"/>
+      <stop offset="100%" stop-color="#c07d00"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="0" stdDeviation="7" flood-color="#ffc637" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+
+  <!-- 金色骷髅（经典 CF 黄金爆头意象） -->
+  <g filter="url(#glow)">
+    <!-- 头盖骨 + 下颚轮廓 -->
+    <path d="M320 26
+             C242 26 196 78 196 140
+             C196 176 214 200 236 214
+             L236 236 C236 244 242 250 250 250 L266 250 L266 232 L286 232 L286 252 L306 252 L306 232 L334 232 L334 252 L354 252 L354 232 L374 232 L374 250 L390 250 C398 250 404 244 404 236 L404 214
+             C426 200 444 176 444 140
+             C444 78 398 26 320 26 Z"
+          fill="url(#gold)" stroke="#5a3600" stroke-width="4" stroke-linejoin="round"/>
+    <!-- 眼窝 -->
+    <ellipse cx="272" cy="132" rx="30" ry="34" fill="#2b1900"/>
+    <ellipse cx="368" cy="132" rx="30" ry="34" fill="#2b1900"/>
+    <!-- 眼窝金色高光 -->
+    <ellipse cx="264" cy="122" rx="9" ry="11" fill="#ffdf6a" opacity="0.55"/>
+    <ellipse cx="360" cy="122" rx="9" ry="11" fill="#ffdf6a" opacity="0.55"/>
+    <!-- 鼻腔 -->
+    <path d="M320 150 L305 186 L335 186 Z" fill="#2b1900"/>
+  </g>
+
+  <!-- HEADSHOT 字样 -->
+  <text x="320" y="300" text-anchor="middle"
+        font-family="'Arial Black', Impact, 'Segoe UI', sans-serif"
+        font-size="66" font-weight="900" letter-spacing="4"
+        fill="url(#goldText)" stroke="#4a2c00" stroke-width="3"
+        paint-order="stroke" filter="url(#glow)">HEADSHOT</text>
+</svg>
