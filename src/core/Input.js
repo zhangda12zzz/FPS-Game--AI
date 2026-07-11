@@ -63,6 +63,8 @@ export class Input {
   }
 
   _onMouseDown(e) {
+    // 忽略 UI 控件上的点击（音量滑块、按钮等），不触发射击
+    if (e.target !== this.canvas) return;
     if (!this.mouse.buttons[e.button]) this.mouseJustPressed.add(e.button);
     this.mouse.buttons[e.button] = true;
   }

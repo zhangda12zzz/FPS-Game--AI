@@ -216,8 +216,8 @@ export class Game {
     this._updateTimerDisplay();
     this._updateBombUI();
 
-    // 全歼判定 → 胜利
-    if (!this.gameOver && this.enemyManager.isCleared()) {
+    // 全歼判定 → 胜利（炸弹已安放时需先拆除才能胜利）
+    if (!this.gameOver && this.enemyManager.isCleared() && !this.bombManager?.isArmed) {
       this._endGame('win');
     }
 
@@ -552,6 +552,9 @@ export class Game {
 
     // 重置武器
     this.weaponManager.switchTo(0);
+    this.weaponManager.resetAllAmmo();
+    this.aimLocked = false;
+    this.isAiming = false;
 
     this._updateHUD();
     this._showNotification('游戏已重新开始');
@@ -634,6 +637,10 @@ export class Game {
     document.getElementById('defuse-bar')?.classList.remove('show');
     document.getElementById('defuse-text')?.classList.remove('show');
     this._showNotification('✅ 炸弹已拆除，危机解除！', 2500);
+    // 拆弹成功后，若敌人已全歼则胜利
+    if (!this.gameOver && this.enemyManager.isCleared()) {
+      this._endGame('win');
+    }
   }
 
   _onBombExploded(data) {

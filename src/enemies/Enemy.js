@@ -29,6 +29,9 @@ export class Enemy {
     this.isCrouching = false;
     this.canJump = false;
 
+    // === 行走动画 ===
+    this._walkPhase = 0;
+
     // === 寻路 ===
     this.pathfinder = null;      // 由 EnemyManager 注入的网格寻路器
     this.path = null;            // 当前路径(世界坐标路点数组)
@@ -130,46 +133,98 @@ export class Enemy {
     backpack.position.set(0, 1.15, -0.22);
     g.add(backpack);
 
-    // === 双臂 (持枪姿势) ===
-    // 右臂 (前伸握枪)
-    const rArmUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.25, 6), olive);
-    rArmUpper.position.set(0.32, 1.15, 0.05);
-    rArmUpper.rotation.x = 0.4;
-    g.add(rArmUpper);
-    const rArmLower = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.25, 6), olive);
-    rArmLower.position.set(0.3, 0.98, 0.2);
-    rArmLower.rotation.x = 0.8;
-    g.add(rArmLower);
-    // 右手
-    const rHand = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6), skin);
-    rHand.position.set(0.28, 0.88, 0.35);
-    g.add(rHand);
+    // === 双臂 — 等腰三角形据枪瞄准姿势 ===
+    // 双臂从肩部向前伸，在胸部高度交汇，手枪在两手交汇处
+    // 使用 pivot group + quaternion 精确定向
+    const upY = new THREE.Vector3(0, -1, 0); // 圆柱默认朝上，取反 = 朝下
 
-    // 左臂 (托护木)
-    const lArmUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.25, 6), olive);
-    lArmUpper.position.set(-0.32, 1.15, 0.05);
-    lArmUpper.rotation.x = 0.6;
-    g.add(lArmUpper);
-    const lArmLower = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.22, 6), olive);
-    lArmLower.position.set(-0.25, 0.95, 0.25);
-    lArmLower.rotation.x = 1.0;
-    g.add(lArmLower);
-    const lHand = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6), skin);
-    lHand.position.set(-0.2, 0.85, 0.4);
-    g.add(lHand);
+    // --- 右臂 ---
+    const rShoulder = new THREE.Vector3(0.28, 1.28, 0);
+    const rHandTarget = new THREE.Vector3(0.04, 1.16, 0.38); // 近中心，胸部高度，前方
 
-    // === 武器 (简化步枪) ===
-    const gunBody = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 0.5), gunMetal);
-    gunBody.position.set(0.1, 0.92, 0.35);
-    g.add(gunBody);
-    const gunBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.3, 6), black);
-    gunBarrel.rotation.x = Math.PI / 2;
-    gunBarrel.position.set(0.1, 0.93, 0.65);
-    g.add(gunBarrel);
-    const gunMag = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.1, 0.05), gunMetal);
-    gunMag.position.set(0.1, 0.85, 0.3);
-    g.add(gunMag);
-    this.gunMuzzlePos = new THREE.Vector3(0.1, 0.93, 0.8);
+    this.rArmPivot = new THREE.Group();
+    this.rArmPivot.position.copy(rShoulder);
+    g.add(this.rArmPivot);
+
+    const rUpperLen = 0.24;
+    const rArmUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, rUpperLen, 6), olive);
+    rArmUpper.position.y = -rUpperLen / 2;
+    rArmUpper.castShadow = true;
+    this.rArmPivot.add(rArmUpper);
+
+    // 前臂 pivot (肘部)
+    this.rForearmPivot = new THREE.Group();
+    this.rForearmPivot.position.y = -rUpperLen;
+    this.rForearmPivot.rotation.x = -0.12; // 微曲保持弹性
+    this.rArmPivot.add(this.rForearmPivot);
+
+    const rLowerLen = 0.22;
+    const rArmLower = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, rLowerLen, 6), olive);
+    rArmLower.position.y = -rLowerLen / 2;
+    rArmLower.castShadow = true;
+    this.rForearmPivot.add(rArmLower);
+
+    const rHand = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), skin);
+    rHand.position.y = -rLowerLen;
+    this.rForearmPivot.add(rHand);
+
+    // 定向：肩部 → 手部目标
+    const rDir = rHandTarget.clone().sub(rShoulder).normalize();
+    this.rArmPivot.quaternion.setFromUnitVectors(upY, rDir);
+
+    // --- 左臂 (镜像) ---
+    const lShoulder = new THREE.Vector3(-0.28, 1.28, 0);
+    const lHandTarget = new THREE.Vector3(-0.04, 1.16, 0.38);
+
+    this.lArmPivot = new THREE.Group();
+    this.lArmPivot.position.copy(lShoulder);
+    g.add(this.lArmPivot);
+
+    const lUpperLen = 0.24;
+    const lArmUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, lUpperLen, 6), olive);
+    lArmUpper.position.y = -lUpperLen / 2;
+    lArmUpper.castShadow = true;
+    this.lArmPivot.add(lArmUpper);
+
+    this.lForearmPivot = new THREE.Group();
+    this.lForearmPivot.position.y = -lUpperLen;
+    this.lForearmPivot.rotation.x = -0.12;
+    this.lArmPivot.add(this.lForearmPivot);
+
+    const lLowerLen = 0.22;
+    const lArmLower = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, lLowerLen, 6), olive);
+    lArmLower.position.y = -lLowerLen / 2;
+    lArmLower.castShadow = true;
+    this.lForearmPivot.add(lArmLower);
+
+    const lHand = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), skin);
+    lHand.position.y = -lLowerLen;
+    this.lForearmPivot.add(lHand);
+
+    const lDir = lHandTarget.clone().sub(lShoulder).normalize();
+    this.lArmPivot.quaternion.setFromUnitVectors(upY, lDir);
+
+    // === 武器 (手枪，位于两手交汇处 / 胸部高度) ===
+    const pistolBody = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.07, 0.16), gunMetal);
+    pistolBody.position.set(0, 1.16, 0.36);
+    pistolBody.castShadow = true;
+    g.add(pistolBody);
+    // 枪管
+    const pistolBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.1, 6), black);
+    pistolBarrel.rotation.x = Math.PI / 2;
+    pistolBarrel.position.set(0, 1.18, 0.48);
+    g.add(pistolBarrel);
+    // 握把
+    const pistolGrip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.05), gunMetal);
+    pistolGrip.position.set(0, 1.09, 0.33);
+    g.add(pistolGrip);
+    // 扳机护圈
+    const triggerGuard = new THREE.Mesh(new THREE.TorusGeometry(0.025, 0.008, 6, 8, Math.PI), black);
+    triggerGuard.position.set(0, 1.08, 0.37);
+    triggerGuard.rotation.x = Math.PI / 2;
+    g.add(triggerGuard);
+    // 枪口位置（世界坐标由 group.matrixWorld 变换）
+    this.gunMuzzlePos = new THREE.Vector3(0, 1.18, 0.55);
 
     // === 下身 ===
     // 腰带
@@ -178,29 +233,60 @@ export class Enemy {
     beltMesh.position.y = 0.8;
     g.add(beltMesh);
 
-    // 大腿
-    for (let side = -1; side <= 1; side += 2) {
-      const thighGeo = new THREE.CylinderGeometry(0.08, 0.07, 0.35, 6);
-      const thigh = new THREE.Mesh(thighGeo, darkOlive);
-      thigh.position.set(side * 0.13, 0.58, 0);
-      g.add(thigh);
-      // 膝盖护具
-      const kneeGeo = new THREE.SphereGeometry(0.07, 6, 6);
-      const knee = new THREE.Mesh(kneeGeo, black);
-      knee.position.set(side * 0.13, 0.38, 0.04);
-      knee.scale.set(1, 0.8, 0.7);
-      g.add(knee);
-      // 小腿
-      const shinGeo = new THREE.CylinderGeometry(0.06, 0.055, 0.3, 6);
-      const shin = new THREE.Mesh(shinGeo, darkOlive);
-      shin.position.set(side * 0.13, 0.2, 0);
-      g.add(shin);
-      // 军靴
-      const bootGeo = new THREE.BoxGeometry(0.1, 0.08, 0.16);
-      const boot = new THREE.Mesh(bootGeo, black);
-      boot.position.set(side * 0.13, 0.04, 0.02);
-      g.add(boot);
-    }
+    // === 双腿 — pivot 结构用于行走动画 ===
+    // 右腿
+    this.rLegPivot = new THREE.Group();
+    this.rLegPivot.position.set(0.13, 0.78, 0);
+    g.add(this.rLegPivot);
+
+    const rThigh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.35, 6), darkOlive);
+    rThigh.position.y = -0.175;
+    rThigh.castShadow = true;
+    this.rLegPivot.add(rThigh);
+
+    this.rShinPivot = new THREE.Group();
+    this.rShinPivot.position.set(0, -0.35, 0.04);
+    this.rLegPivot.add(this.rShinPivot);
+
+    const rKnee = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 6), black);
+    rKnee.scale.set(1, 0.8, 0.7);
+    this.rShinPivot.add(rKnee);
+
+    const rShin = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.055, 0.3, 6), darkOlive);
+    rShin.position.y = -0.15;
+    rShin.castShadow = true;
+    this.rShinPivot.add(rShin);
+
+    const rBoot = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.16), black);
+    rBoot.position.set(0, -0.34, 0.02);
+    this.rShinPivot.add(rBoot);
+
+    // 左腿 (镜像)
+    this.lLegPivot = new THREE.Group();
+    this.lLegPivot.position.set(-0.13, 0.78, 0);
+    g.add(this.lLegPivot);
+
+    const lThigh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.35, 6), darkOlive);
+    lThigh.position.y = -0.175;
+    lThigh.castShadow = true;
+    this.lLegPivot.add(lThigh);
+
+    this.lShinPivot = new THREE.Group();
+    this.lShinPivot.position.set(0, -0.35, 0.04);
+    this.lLegPivot.add(this.lShinPivot);
+
+    const lKnee = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 6), black);
+    lKnee.scale.set(1, 0.8, 0.7);
+    this.lShinPivot.add(lKnee);
+
+    const lShin = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.055, 0.3, 6), darkOlive);
+    lShin.position.y = -0.15;
+    lShin.castShadow = true;
+    this.lShinPivot.add(lShin);
+
+    const lBoot = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.16), black);
+    lBoot.position.set(0, -0.34, 0.02);
+    this.lShinPivot.add(lBoot);
 
     // 收集所有材质用于闪白效果
     g.traverse(child => {
@@ -209,6 +295,34 @@ export class Enemy {
         this.originalMaterials.push({ mesh: child, color: child.material.color.clone() });
       }
     });
+  }
+
+  /** 行走动画：根据移动速度驱动双腿交替摆动 */
+  _updateWalkAnimation(dt) {
+    if (this.isDead) return;
+
+    const vel = this.body?.velocity;
+    const speed = vel ? Math.hypot(vel.x, vel.z) : 0;
+
+    if (speed > 0.5) {
+      // 行走中：步频与速度成正比
+      this._walkPhase += dt * (4 + speed * 1.5);
+      const swing = Math.sin(this._walkPhase) * 0.45;       // 大腿摆幅
+      const kneeSwing = Math.max(0, Math.sin(this._walkPhase)) * 0.55; // 抬腿时屈膝
+      const kneeBack = Math.max(0, Math.sin(this._walkPhase + Math.PI)) * 0.55; // 对侧腿屈膝
+
+      if (this.rLegPivot) this.rLegPivot.rotation.x = swing;
+      if (this.lLegPivot) this.lLegPivot.rotation.x = -swing;
+      if (this.rShinPivot) this.rShinPivot.rotation.x = -kneeSwing;
+      if (this.lShinPivot) this.lShinPivot.rotation.x = -kneeBack;
+    } else {
+      // 停步：平滑回正
+      const damp = 1 - Math.min(1, dt * 10);
+      if (this.rLegPivot) this.rLegPivot.rotation.x *= damp;
+      if (this.lLegPivot) this.lLegPivot.rotation.x *= damp;
+      if (this.rShinPivot) this.rShinPivot.rotation.x *= damp;
+      if (this.lShinPivot) this.lShinPivot.rotation.x *= damp;
+    }
   }
 
   flashWhite() {
@@ -332,6 +446,9 @@ export class Enemy {
 
     // 蹲伏时压低模型（与玩家一致的视觉反馈）
     this._applyCrouchVisual(dt);
+
+    // 行走动画
+    this._updateWalkAnimation(dt);
 
     const distToPlayer = this.group.position.distanceTo(playerPosition);
 

@@ -12,7 +12,7 @@ const volumeValue = document.getElementById('volume-value');
 const volumeIcon = document.getElementById('volume-icon');
 
 function applyVolume(val) {
-  const pct = Math.max(0, Math.min(100, val));
+  const pct = Math.max(0, Math.min(200, val));
   game?.audioFx?.setMasterVolume(pct / 100);
   if (volumeValue) volumeValue.textContent = pct;
   if (volumeIcon) volumeIcon.textContent = pct === 0 ? '🔇' : (pct < 45 ? '🔉' : '🔊');

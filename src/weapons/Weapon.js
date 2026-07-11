@@ -41,4 +41,11 @@ export class Weapon {
   getRecoilOffset() {
     return (Math.random() - 0.5) * this.recoil;
   }
-}
+
+  /** 重置弹匣与备弹到初始值 */
+  resetAmmo() {
+    this.ammo = this.magSize;
+    this.reserveAmmo = this.config.reserveAmmo || 90;
+    this.lastFireTime = 0;
+  }
+}

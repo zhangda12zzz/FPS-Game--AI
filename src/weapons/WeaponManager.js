@@ -100,4 +100,11 @@ export class WeaponManager {
   getCurrentSlot() {
     return this.currentSlot;
   }
+
+  /** 重置所有武器的弹匣与备弹到初始值 */
+  resetAllAmmo() {
+    for (const w of this.weapons) {
+      if (w.resetAmmo) w.resetAmmo();
+    }
+  }
 }

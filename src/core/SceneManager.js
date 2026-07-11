@@ -11,12 +11,15 @@ export class SceneManager {
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: true,
-      powerPreference: 'high-performance'
+      powerPreference: 'high-performance',
+      stencil: false,          // 不使用模板缓冲，节省显存
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // 限制像素比 ≤ 1.5，高 DPI 屏幕上避免过度渲染导致掉帧
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // PCFShadowMap 比 PCFSoftShadowMap 快很多，视觉差异很小
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
     // 相机
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
@@ -35,11 +38,11 @@ export class SceneManager {
     const sun = new THREE.DirectionalLight(0xfff5e0, 1.2);
     sun.position.set(50, 80, 30);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -60;
-    sun.shadow.camera.right = 60;
-    sun.shadow.camera.top = 60;
-    sun.shadow.camera.bottom = -60;
+    sun.shadow.mapSize.set(1024, 1024);  // 1024 比 2048 快 4 倍，远距离几乎看不出差异
+    sun.shadow.camera.left = -50;
+    sun.shadow.camera.right = 50;
+    sun.shadow.camera.top = 50;
+    sun.shadow.camera.bottom = -50;
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = 200;
     sun.shadow.bias = -0.001;

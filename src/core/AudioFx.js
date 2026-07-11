@@ -8,7 +8,7 @@ const BGM_URLS = [
 const RELOAD_SFX_URL = '/sounds/reload.mp3';
 
 // 背景音乐相对总音量的占比（较小，避免盖过战斗音效）
-const MUSIC_MIX = 0.1;
+const MUSIC_MIX = 0.2;
 
 // WebAudio 合成音效：警报蜂鸣、爆炸、安包/拆包提示音，以及枪声/换弹/命中/脚步等战斗音效；背景音乐与换弹音效使用本地资源播放
 export class AudioFx {
@@ -311,7 +311,7 @@ export class AudioFx {
     this._ensure();
     const now = this.ctx.currentTime;
     const dur = sprint ? 0.09 : 0.13;
-    let vol = (enemy ? 0.35 : 0.75) * volume;
+    let vol = (enemy ? 0.4 : 0.8) * volume;
     if (crouch) vol *= 0.6;
     if (sprint) vol *= 1.25;
     // 低频软噗
@@ -330,7 +330,7 @@ export class AudioFx {
 
   /** 设置总音量（0~1），同时作用于合成音效与背景音乐 */
   setMasterVolume(v) {
-    this.masterVolume = Math.max(0, Math.min(1, v));
+    this.masterVolume = Math.max(0, Math.min(2, v));
     if (this.masterGain) this.masterGain.gain.value = this.masterVolume;
     if (this.music) this.music.volume = Math.min(1, this.masterVolume * MUSIC_MIX);
     if (this.reloadSfx) this.reloadSfx.volume = Math.min(1, this.masterVolume * 1.6);
