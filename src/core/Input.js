@@ -5,6 +5,8 @@ export class Input {
     this.keys = {};
     this.justPressed = new Set();
     this.justReleased = new Set();
+    this.mouseJustPressed = new Set();
+    this.mouseJustReleased = new Set();
     this.mouse = { x: 0, y: 0, dx: 0, dy: 0, buttons: {} };
     this.isLocked = false;
 
@@ -61,17 +63,21 @@ export class Input {
   }
 
   _onMouseDown(e) {
+    if (!this.mouse.buttons[e.button]) this.mouseJustPressed.add(e.button);
     this.mouse.buttons[e.button] = true;
   }
 
   _onMouseUp(e) {
     this.mouse.buttons[e.button] = false;
+    this.mouseJustReleased.add(e.button);
   }
 
   isKeyPressed(code) { return !!this.keys[code]; }
   isKeyJustPressed(code) { return this.justPressed.has(code); }
   isKeyJustReleased(code) { return this.justReleased.has(code); }
   isMouseDown(button = 0) { return !!this.mouse.buttons[button]; }
+  isMouseJustPressed(button = 0) { return this.mouseJustPressed.has(button); }
+  isMouseJustReleased(button = 0) { return this.mouseJustReleased.has(button); }
 
   consumeMouseDelta() {
     const dx = this.mouse.dx;
@@ -85,6 +91,8 @@ export class Input {
   endFrame() {
     this.justPressed.clear();
     this.justReleased.clear();
+    this.mouseJustPressed.clear();
+    this.mouseJustReleased.clear();
   }
 
   destroy() {

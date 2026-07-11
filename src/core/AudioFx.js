@@ -7,9 +7,6 @@ const BGM_URLS = [
 // 本地换弹音效（真实录音，已下载到 public/sounds）
 const RELOAD_SFX_URL = '/sounds/reload.mp3';
 
-// 本地爆头语音（经典 UT/CF 风格英文 "Headshot!" 播报，已下载到 public/sounds）
-const HEADSHOT_SFX_URL = '/sounds/headshot.wav';
-
 // 背景音乐相对总音量的占比（较小，避免盖过战斗音效）
 const MUSIC_MIX = 0.1;
 
@@ -31,10 +28,6 @@ export class AudioFx {
     this.reloadSfx = null;
     this._reloadSfxFailed = false;
 
-    // 本地爆头语音（真实英文播报，加载失败则回退到提示音）
-    this.headshotSfx = null;
-    this._headshotSfxFailed = false;
-
     // 合成环境声（在线音乐不可用时的回退）
     this.ambienceTimer = null;
     this.drone = null;
@@ -55,8 +48,7 @@ export class AudioFx {
   resume() {
     this._ensure();
     if (this.ctx.state === 'suspended') this.ctx.resume();
-    this._initReloadSfx();   // 提前预加载换弹音效，避免首次换弹无声
-    this._initHeadshotSfx(); // 提前预加载爆头语音
+    this._initReloadSfx(); // 提前预加载换弹音效，避免首次换弹无声
   }
 
   /** 单次蜂鸣 */
@@ -254,31 +246,6 @@ export class AudioFx {
     osc.connect(g); g.connect(this.masterGain);
     osc.start(now); osc.stop(now + 0.14);
     this._playNoise(0.06, 0.22, 'lowpass', 500);
-  }
-
-  /** 预加载本地爆头语音元素（幂等） */
-  _initHeadshotSfx() {
-    if (this.headshotSfx || this._headshotSfxFailed) return;
-    this.headshotSfx = new Audio(HEADSHOT_SFX_URL);
-    this.headshotSfx.preload = 'auto';
-    this.headshotSfx.addEventListener('error', () => { this._headshotSfxFailed = true; });
-    try { this.headshotSfx.load(); } catch (e) { /* 忽略 */ }
-  }
-
-  /** 爆头语音：优先播放本地真实英文 "Headshot!" 播报；未就绪或失败时退化为提示音 */
-  headshotVoice() {
-    this._ensure();
-    this._initHeadshotSfx();
-    if (this.headshotSfx && !this._headshotSfxFailed && this.headshotSfx.readyState >= 2) {
-      try {
-        this.headshotSfx.currentTime = 0;
-        this.headshotSfx.volume = Math.min(1, this.masterVolume * 1.8);
-        const p = this.headshotSfx.play();
-        if (p && p.catch) p.catch(() => this._beep(1200, 0.15, 'square', 0.5));
-        return;
-      } catch (e) { /* 退化处理 */ }
-    }
-    this._beep(1200, 0.15, 'square', 0.5);
   }
 
   /** 脚步声：{ sprint, crouch, volume, enemy } */

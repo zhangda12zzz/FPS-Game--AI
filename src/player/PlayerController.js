@@ -16,6 +16,7 @@ export class PlayerController {
     this.isMoving = false;               // 本帧是否在移动（供脚步声使用）
     this.currentHeight = PLAYER.HEIGHT; // 当前视点高度（蹲伏时平滑降低）
     this.sensitivityScale = 1;          // 鼠标灵敏度系数（开镜时降低，更易瞄准）
+    this.moveSpeedScale = 1;            // 移动速度系数（开镜时大幅降低）
 
     this.velocity = new THREE.Vector3();
     this.direction = new THREE.Vector3();
@@ -71,6 +72,8 @@ export class PlayerController {
     let speed = PLAYER.SPEED;
     if (this.isCrouching) speed = PLAYER.CROUCH_SPEED;
     else if (this.isSprinting) speed = PLAYER.SPRINT_SPEED;
+    // 开镜移动惩罚：处于瞄准状态时大幅降速
+    speed *= this.moveSpeedScale;
 
     const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));

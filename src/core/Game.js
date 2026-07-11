@@ -16,6 +16,7 @@ import { MapLoader } from '../map/MapLoader.js';
 import { Map_Transport } from '../map/Map_Transport.js';
 import { BombManager } from '../modes/BombManager.js';
 import { AudioFx } from './AudioFx.js';
+import { KillVideo } from '../ui/KillVideo.js';
 
 export class Game {
   constructor(canvas) {
@@ -54,8 +55,16 @@ export class Game {
 
     // 开镜(ADS)状态
     this.isAiming = false;
+    this.aimLocked = false;   // 点击切换模式的锁定状态
+    this.aimPressTime = 0;    // 右键按下时刻（用于区分长按/点击）
     this.baseFov = 75;      // 默认视野（与相机初始 FOV 一致）
     this.currentFov = 75;   // 平滑插值的当前视野
+
+    // 击杀反馈（绿幕视频）与连杀计数
+    this.killVideo = new KillVideo();
+    this.killStreak = 0;
+    this.lastKillTime = 0;
+    this.STREAK_WINDOW = 5000; // 连杀有效窗口(ms)
 
     // 小地图
     this.minimapCanvas = document.getElementById('minimap-canvas');
@@ -91,7 +100,6 @@ export class Game {
 
     // 控制按钮
     document.getElementById('btn-enemy-attack')?.addEventListener('click', () => this.toggleEnemyAttack());
-    document.getElementById('btn-enemy-reset')?.addEventListener('click', () => this.resetEnemies());
     document.getElementById('btn-reset-game')?.addEventListener('click', () => this.resetGame());
   }
 
@@ -248,11 +256,6 @@ export class Game {
       this.toggleEnemyAttack();
     }
 
-    // 重置敌人 F4
-    if (this.input.isKeyJustPressed('F4')) {
-      this.resetEnemies();
-    }
-
     // 重新开始 F5
     if (this.input.isKeyJustPressed('F5')) {
       this.resetGame();
@@ -343,15 +346,20 @@ export class Game {
       const dmg = isHeadshot
         ? (config.headshotDamage ?? Math.round(config.damage * (ENEMY.HEADSHOT_MULTIPLIER || 2.5)))
         : config.damage;
+      const hpBefore = enemy.health;
+      const wasAlreadyDead = enemy.isDead;
       enemy.takeDamage(dmg, { name: '玩家', isHeadshot: isHeadshot }, hit.object);
 
       // 命中肉体音效
       this.audioFx?.hitFlesh();
 
-      // 爆头UI反馈
-      if (isHeadshot) {
-        this._showHeadshot();
-        this.audioFx?.headshotVoice();
+      // 本次射击造成击杀 → 触发击杀反馈视频
+      if (!wasAlreadyDead && enemy.isDead) {
+        this._onPlayerKill({
+          isHeadshot,
+          isKnife: config.slot === 3,
+          wasFullHealth: hpBefore >= ENEMY.HEALTH,
+        });
       }
 
       // 命中标记
@@ -389,12 +397,31 @@ export class Game {
   _updateAim(dt) {
     const weapon = this.weaponManager.getCurrentWeapon();
     const canAds = !!(weapon && weapon.config && weapon.config.adsFov);
-    // 右键（鼠标按钮 2）按住开镜，仅步枪/手枪生效
-    this.isAiming = canAds && this.input.isMouseDown(2);
 
-    // 同步武器模型位置与鼠标灵敏度
+    if (canAds) {
+      const CLICK_MS = 200; // 短于此时长视为“点击”，用于切换锁定
+      if (this.input.isMouseJustPressed(2)) {
+        this.aimPressTime = performance.now();
+      }
+      if (this.input.isMouseJustReleased(2)) {
+        const dur = performance.now() - this.aimPressTime;
+        if (dur < CLICK_MS) {
+          this.aimLocked = !this.aimLocked; // 点击：切换锁定开镜
+        } else {
+          this.aimLocked = false;           // 长按松开：退出开镜
+        }
+      }
+      // 长按（右键按住）或点击锁定，任一成立即处于瞄准状态
+      this.isAiming = this.input.isMouseDown(2) || this.aimLocked;
+    } else {
+      this.isAiming = false;
+      this.aimLocked = false;
+    }
+
+    // 同步武器模型位置、鼠标灵敏度与移动速度
     this.weaponManager.setAiming(this.isAiming);
     this.playerController.sensitivityScale = this.isAiming ? 0.5 : 1;
+    this.playerController.moveSpeedScale = this.isAiming ? 0.4 : 1;
 
     // 相机 FOV 平滑插值到目标视野
     const targetFov = (this.isAiming && weapon) ? (weapon.config.adsFov || this.baseFov) : this.baseFov;
@@ -461,6 +488,8 @@ export class Game {
       document.getElementById('reload-text')?.classList.remove('show');
     }
     this.weaponManager.switchTo(slot);
+    // 切枪时解除点击锁定的开镜状态，避免残留
+    this.aimLocked = false;
 
     // 更新武器名称显示
     const weaponNameEl = document.getElementById('hud-weapon-name');
@@ -478,11 +507,6 @@ export class Game {
       btn.innerHTML = `<span class="btn-key">F2</span>敌人攻击: ${this.enemyAttackEnabled ? '开' : '关'}`;
     }
     this._showNotification(`敌人攻击：${this.enemyAttackEnabled ? '已开启' : '已关闭'}`);
-  }
-
-  resetEnemies() {
-    this.enemyManager.resetEnemies();
-    this._showNotification('敌人已重置');
   }
 
   resetGame() {
@@ -714,15 +738,39 @@ export class Game {
     this._notifyTimeout = setTimeout(() => el.classList.remove('show'), duration);
   }
 
-  /** 黄金爆头提示：播放透明金色爆头图片的弹出动画（可重复触发） */
-  _showHeadshot() {
-    const el = document.getElementById('headshot-indicator');
-    if (!el) return;
-    el.classList.remove('show');
-    void el.offsetWidth; // 强制重排，确保连续爆头也能重新播放动画
-    el.classList.add('show');
-    clearTimeout(this._headshotTimeout);
-    this._headshotTimeout = setTimeout(() => el.classList.remove('show'), 900);
+  /**
+   * 玩家击杀反馈（绿幕视频）。优先级：刀杀 > 爆头 > 普通连杀。
+   * 连杀窗口 5 秒；爆头不打断连杀计数（后台照常累加）；刀杀立即清零连杀。
+   */
+  _onPlayerKill({ isHeadshot, isKnife, wasFullHealth }) {
+    const now = performance.now();
+    const vol = Math.min(1, (this.audioFx?.masterVolume ?? 0.5) * 1.8);
+
+    // 刀杀：最高优先级，立即重置连杀
+    if (isKnife) {
+      this.killStreak = 0;
+      this.lastKillTime = now;
+      this.killVideo?.play('cf_kinfe', vol);
+      return;
+    }
+
+    // 连杀累加（普通击杀与爆头击杀都计入）
+    if (now - this.lastKillTime <= this.STREAK_WINDOW) {
+      this.killStreak += 1;
+    } else {
+      this.killStreak = 1;
+    }
+    this.lastKillTime = now;
+
+    // 爆头：优先展示爆头专属视频（满血一枪爆头 vs 非满血/多枪爆头）
+    if (isHeadshot) {
+      this.killVideo?.play(wasFullHealth ? 'cf_headshot' : 'cf_headshot(bai)', vol);
+      return;
+    }
+
+    // 普通连杀：1~7 播 cf_[N]kill，≥8 固定 cf_8kill
+    const n = Math.min(Math.max(this.killStreak, 1), 8);
+    this.killVideo?.play(`cf_${n}kill`, vol);
   }
 
   _updateHUD() {

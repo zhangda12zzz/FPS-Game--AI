@@ -64,22 +64,15 @@
     }
     #notification.show { opacity: 1; }
 
-    /* === 黄金爆头提示（透明背景，无黑框） === */
-    #headshot-indicator {
-      position: fixed; top: 24%; left: 50%;
-      transform: translate(-50%, -50%) scale(0.6);
-      width: 300px; max-width: 44vw; height: auto;
-      pointer-events: none; z-index: 250;
-      opacity: 0; background: none; border: none;
+    /* === 击杀反馈绿幕视频（透明抠图） === */
+    #kill-video-canvas {
+      position: fixed; top: 46%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(38vw, 520px); height: auto;
+      pointer-events: none; z-index: 260;
+      opacity: 0; transition: opacity 0.15s;
     }
-    #headshot-indicator.show { animation: headshotPop 0.85s ease-out forwards; }
-    @keyframes headshotPop {
-      0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.4) rotate(-6deg); }
-      18%  { opacity: 1; transform: translate(-50%, -50%) scale(1.15) rotate(2deg); }
-      36%  { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0deg); }
-      72%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-      100% { opacity: 0; transform: translate(-50%, -50%) scale(1.06); }
-    }
+    #kill-video-canvas.show { opacity: 1; }
 
     /* HUD */
     #hud {
@@ -365,9 +358,6 @@
     <button class="ctrl-btn" id="btn-enemy-attack" tabindex="-1">
       <span class="btn-key">F2</span>敌人攻击: 关
     </button>
-    <button class="ctrl-btn" id="btn-enemy-reset" tabindex="-1">
-      <span class="btn-key">F4</span>重置敌人
-    </button>
     <button class="ctrl-btn danger" id="btn-reset-game" tabindex="-1">
       <span class="btn-key">F5</span>重新开始
     </button>
@@ -376,8 +366,8 @@
   <!-- 通知消息 -->
   <div id="notification"></div>
 
-  <!-- 黄金爆头提示（透明） -->
-  <img id="headshot-indicator" src="/images/headshot_gold.svg" alt="Headshot" />
+  <!-- 击杀反馈绿幕视频（透明抠图） -->
+  <canvas id="kill-video-canvas"></canvas>
 
   <!-- 命中标记 -->
   <svg id="hitmarker" width="30" height="30" viewBox="0 0 30 30">
@@ -475,7 +465,7 @@
     <button class="start-btn" id="start-btn">开始游戏</button>
     <div class="controls">
       WASD 移动 | 鼠标视角 | 左键射击 | 空格跳跃 | Ctrl 下蹲 | Shift 冲刺<br>
-      1/2/3 切换武器 | R 换弹 | E 拆包 | F2 敌人攻击 | F4 重置敌人 | F5 重新开始 | Tab 计分板
+      1/2/3 切换武器 | R 换弹 | E 拆包 | F2 敌人攻击 | F5 重新开始 | Tab 计分板
     </div>
   </div>
 
@@ -493,7 +483,6 @@
     <div class="key-hint"><div class="hk" style="font-size:8px;">Ctrl</div><div class="kd">下蹲</div></div>
     <div class="key-hint divider"></div>
     <div class="key-hint"><div class="hk">F2</div><div class="kd">敌人攻击开关</div></div>
-    <div class="key-hint"><div class="hk">F4</div><div class="kd">重置敌人</div></div>
     <div class="key-hint"><div class="hk">F5</div><div class="kd">重新开始</div></div>
     <div class="key-hint divider"></div>
     <div class="key-hint"><div class="hk">Tab</div><div class="kd">计分板</div></div>
