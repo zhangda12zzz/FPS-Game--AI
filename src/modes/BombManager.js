@@ -204,7 +204,7 @@ export class BombManager {
     const pos = this.bombPos ? this.bombPos.clone() : null;
     this._removeBombEntity();
     this.audio?.stopAlarm();
-    this.audio?.explosion();
+    // 爆炸音效由 Game._triggerExplosionFx() 统一播放(bomb.flac)，此处不重复播放
     eventBus.emit('bomb:exploded', { position: pos });
   }
 

@@ -20,7 +20,10 @@ export class EnemyManager {
     // 炸弹相关
     this.plantZone = null;
     this.droppedBomb = null;     // {position: Vector3} 地面掉落包
-    this.bombActive = false;     // 炸弹已安放到地面并处于计时（禁止再指派携带者）
+    this.bombActive = false;     // 炸弹已安放到地面并处于计时(禁止再指派携带者)
+    
+    // 寻路器(由 Game 注入)
+    this.pathfinder = null;
 
     this._bindEvents();
   }
@@ -55,10 +58,11 @@ export class EnemyManager {
     });
   }
 
-  init(scene, spawnPoints, plantZone = null) {
+  init(scene, spawnPoints, plantZone = null, pathfinder = null) {
     this.scene = scene;
     this.spawnPoints = spawnPoints;
     this.plantZone = plantZone;
+    this.pathfinder = pathfinder;
     this._spawnInitialEnemies();
   }
 
@@ -102,6 +106,7 @@ export class EnemyManager {
     const enemy = new Enemy(position, this.physics);
     enemy.enemyAttackEnabled = this.enemyAttackEnabled;
     enemy.setPlantZone(this.plantZone);
+    enemy.pathfinder = this.pathfinder;
     this.scene.add(enemy.group);
     this.enemies.push(enemy);
     this.spawnedCount++;
@@ -142,6 +147,21 @@ export class EnemyManager {
   }
 
   update(dt, playerPosition) {
+    // 携带者混入部队判定：若其为最靠近安包区的一个(最靠前)且尚有队友存活，
+    // 则让其收敛(不独自冲锋)；若落后于队友或为最后一人，则正常推进。
+    const carrier = this.getCarrier();
+    if (carrier && !carrier.hasPlanted && this.plantZone) {
+      const cd = carrier.group.position.distanceTo(this.plantZone);
+      let othersMin = Infinity;
+      for (const e of this.enemies) {
+        if (e === carrier || e.isDead) continue;
+        const d = e.group.position.distanceTo(this.plantZone);
+        if (d < othersMin) othersMin = d;
+      }
+      // 有队友且携带者处于前列(与最靠前队友相差在 3 以内) → 收敛
+      carrier._holdPush = (othersMin !== Infinity) && (cd <= othersMin + 3);
+    }
+
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const enemy = this.enemies[i];
       enemy.update(dt, playerPosition);

@@ -29,6 +29,13 @@ export class Enemy {
     this.isCrouching = false;
     this.canJump = false;
 
+    // === 寻路 ===
+    this.pathfinder = null;      // 由 EnemyManager 注入的网格寻路器
+    this.path = null;            // 当前路径(世界坐标路点数组)
+    this._pathGoal = null;       // 当前路径的目标点
+    this._pathTimer = 0;         // 路径重算计时
+    this._holdPush = false;      // 携带者是否暂缓冲锋(混入部队)
+
     this.group = new THREE.Group();
     this._createSoldierModel();
     this.group.position.copy(position);
@@ -238,7 +245,8 @@ export class Enemy {
   _createBombPack() {
     const packGeo = new THREE.BoxGeometry(0.22, 0.28, 0.14);
     const packMat = new THREE.MeshStandardMaterial({
-      color: 0x992222, emissive: 0xff2200, emissiveIntensity: 0.6, roughness: 0.5
+      // 低调深色，贴合普通装具外观，避免成为醒目的红色标记(让玩家难以分辨携带者)
+      color: 0x2f2f26, emissive: 0x000000, emissiveIntensity: 0, roughness: 0.85
     });
     this.bombPack = new THREE.Mesh(packGeo, packMat);
     this.bombPack.position.set(0, 1.15, -0.32); // 背包后侧
@@ -277,7 +285,7 @@ export class Enemy {
   die(killerInfo) {
     this.isDead = true;
     this.state = STATE.DEAD;
-    this.deathTimer = 10;
+    this.deathTimer = 2; // 倒地后 2s 消失
     const wasHeadshot = killerInfo?.isHeadshot || false;
 
     // 携带者阵亡且尚未完成安包 → 炸弹掉落（可被其他 AI 拾取）
@@ -306,9 +314,9 @@ export class Enemy {
     this.updateHitmarker(dt);
 
     if (this.isDead) {
-      // 倒地动画
-      if (this.deathTimer > 9.3) {
-        const t = (10 - this.deathTimer) / 0.7;
+      // 倒地动画（前 0.7s）
+      if (this.deathTimer > 1.3) {
+        const t = (2 - this.deathTimer) / 0.7;
         this.group.rotation.x = -Math.PI / 2 * Math.min(t, 1);
         this.group.position.y = THREE.MathUtils.lerp(this.group.position.y, -0.3, t * 0.5);
       }
@@ -329,13 +337,13 @@ export class Enemy {
 
     // 最高优先级：前往拾取掉落的炸弹
     if (this.pickupTarget) {
-      this._moveTowards(this.pickupTarget, ENEMY.SPEED, dt);
+      this._navigateTo(this.pickupTarget, ENEMY.SPEED, dt);
       return;
     }
 
     // 携带者：前往玩家老家安包（未完成时覆盖普通状态机）
     if (this.isCarrier && !this.hasPlanted && this.plantZone) {
-      this._carrierBehavior(dt);
+      this._carrierBehavior(dt, playerPosition, distToPlayer);
       return;
     }
     this.isCrouching = false;
@@ -347,8 +355,12 @@ export class Enemy {
     }
   }
 
-  /** 携带者安包行为：靠近安包区→下蹲安包（可被击杀中断） */
-  _carrierBehavior(dt) {
+  /**
+   * 携带者行为：靠近安包区→下蹲安包（可被击杀中断）。
+   * 为避免"总是冲在最前边"，在远离安包区且并非最靠前时，会像普通士兵一样
+   * 作战/推进以混入部队；仅在临近安包区(APPROACH_RADIUS)时才全力冲刺。
+   */
+  _carrierBehavior(dt, playerPos, distToPlayer) {
     const zone = this.plantZone;
     const flat = this.group.position.clone(); flat.y = 0;
     const dist = flat.distanceTo(zone);
@@ -368,13 +380,19 @@ export class Enemy {
         const bombPos = this.group.position.clone(); bombPos.y = 0;
         eventBus.emit('bomb:plantComplete', { position: bombPos, from: this });
       }
-    } else {
-      // 前往安包区
-      this.isPlanting = false;
-      this.isCrouching = false;
-      this.plantProgress = 0;
-      this._moveTowards(zone, ENEMY.SPEED, dt);
+      return;
     }
+
+    this.isPlanting = false;
+    this.isCrouching = false;
+    this.plantProgress = 0;
+
+    // 携带者始终向安包区推进（自动寻路绕开障碍），绝不因玩家逐近而停步。
+    // 为混入部队、不总冲最前：被判定为最靠前(_holdPush)且尚未临近安包区时降速与队友同步；
+    // 一旦进入 APPROACH_RADIUS 则全力冲刺安包。
+    const holding = this._holdPush && dist > BOMB.APPROACH_RADIUS;
+    const speed = holding ? ENEMY.SPEED * 0.55 : ENEMY.SPEED;
+    this._navigateTo(zone, speed, dt);
   }
 
   /** 朝目标点移动（水平），带卡住检测与侧向绕行避障 */
@@ -413,6 +431,38 @@ export class Enemy {
     this.group.rotation.y = Math.atan2(moveDir.x, moveDir.z);
   }
 
+  /**
+   * 自动寻路移动：目标可直视时走直线；被障碍阻挡时用 A* 计算绕行路径并沿路点前进。
+   */
+  _navigateTo(target, speed, dt = 0.016) {
+    const pf = this.pathfinder;
+    const pos = this.group.position;
+    // 无寻路器或可直视 → 直接前往
+    if (!pf || pf.hasLineOfSightWorld(pos, target)) {
+      this.path = null;
+      this._moveTowards(target, speed, dt);
+      return;
+    }
+    // 需要绕路：目标显著移动或计时到点则重算路径
+    this._pathTimer -= dt;
+    const goalMoved = !this._pathGoal || this._pathGoal.distanceTo(target) > 2;
+    if (!this.path || this.path.length === 0 || this._pathTimer <= 0 || goalMoved) {
+      this.path = pf.findPath(pos, target);
+      this._pathTimer = 0.6;
+      this._pathGoal = target.clone();
+    }
+    if (this.path && this.path.length) {
+      let wp = this.path[0];
+      // 跳过已抵达的路点
+      while (this.path.length > 1 && pos.distanceTo(wp) < 0.8) { this.path.shift(); wp = this.path[0]; }
+      if (this.path.length === 1 && pos.distanceTo(wp) < 0.8) { this.path.shift(); wp = target; }
+      this._moveTowards(wp || target, speed, dt);
+    } else {
+      // 无路可走 → 尽力直线靠近
+      this._moveTowards(target, speed, dt);
+    }
+  }
+
   /** 蹲伏视觉：平滑压缩模型高度 */
   _applyCrouchVisual(dt) {
     const target = this.isCrouching ? 0.62 : 1.0;
@@ -432,32 +482,35 @@ export class Enemy {
       );
       this.patrolTimer = 3 + Math.random() * 3;
     }
-    const dir = this.patrolTarget.clone().sub(this.group.position); dir.y = 0;
-    if (dir.length() > 1) {
-      dir.normalize();
-      this.body.velocity.x = dir.x * ENEMY.SPEED * 0.6;
-      this.body.velocity.z = dir.z * ENEMY.SPEED * 0.6;
-      this.group.rotation.y = Math.atan2(dir.x, dir.z);
+    // 巡逻也走寻路，避免径直撞墙
+    if (this.group.position.distanceTo(this.patrolTarget) > 1) {
+      this._navigateTo(this.patrolTarget, ENEMY.SPEED * 0.6, dt);
     }
   }
 
   _chase(dt, playerPos, dist) {
     if (dist > ENEMY.DETECTION_RANGE * 1.5) { this.state = STATE.PATROL; return; }
     if (dist < ENEMY.ATTACK_RANGE) { this.state = STATE.ATTACK; return; }
-    const dir = playerPos.clone().sub(this.group.position); dir.y = 0; dir.normalize();
-    this.body.velocity.x = dir.x * ENEMY.SPEED;
-    this.body.velocity.z = dir.z * ENEMY.SPEED;
-    this.group.rotation.y = Math.atan2(dir.x, dir.z);
+    // 自动寻路追击：可直视则直线逼近，被墙体阻挡则绕行其他过道
+    this._navigateTo(playerPos, ENEMY.SPEED, dt);
   }
 
   _attack(dt, playerPos, dist) {
     if (dist > ENEMY.ATTACK_RANGE * 1.2) { this.state = STATE.CHASE; return; }
+    // 始终朝向玩家
     const dir = playerPos.clone().sub(this.group.position); dir.y = 0; dir.normalize();
     this.group.rotation.y = Math.atan2(dir.x, dir.z);
-    this.body.velocity.x = 0; this.body.velocity.z = 0;
 
+    // 攻击开关关闭时不原地静止：继续向玩家逐近，避免“玩家一靠近敌人就不动”
+    if (!this.enemyAttackEnabled) {
+      this._navigateTo(playerPos, ENEMY.SPEED, dt);
+      return;
+    }
+
+    // 攻击开启：停步射击
+    this.body.velocity.x = 0; this.body.velocity.z = 0;
     const now = Date.now();
-    if (this.enemyAttackEnabled && now - this.lastAttackTime >= ENEMY.FIRE_RATE) {
+    if (now - this.lastAttackTime >= ENEMY.FIRE_RATE) {
       this.lastAttackTime = now;
       // 敌人枪口位置(世界坐标)
       const muzzleWorld = this.gunMuzzlePos.clone().applyMatrix4(this.group.matrixWorld);

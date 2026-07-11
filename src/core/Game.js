@@ -17,6 +17,7 @@ import { Map_Transport } from '../map/Map_Transport.js';
 import { BombManager } from '../modes/BombManager.js';
 import { AudioFx } from './AudioFx.js';
 import { KillVideo } from '../ui/KillVideo.js';
+import { Pathfinder } from '../enemies/Pathfinder.js';
 
 export class Game {
   constructor(canvas) {
@@ -43,6 +44,8 @@ export class Game {
     this.audioFx = new AudioFx();
     this.bombManager = null;
     this.gameOver = false;
+    this.exploding = false;   // 炸弹爆炸特效进行中(白屏+震动)，此间冻结输入/结算
+    this.pathfinder = null;   // 敌人网格 A* 寻路器
 
     // 游戏状态
     this.kills = 0;
@@ -123,7 +126,9 @@ export class Game {
     const spawnPoints = this.mapInstance?.enemySpawnPoints || this.mapInstance?.spawnPoints || [];
     const plantZone = this.mapInstance?.getPlantZone ? this.mapInstance.getPlantZone() : new THREE.Vector3(34, 0, 0);
     this.plantZone = plantZone;
-    this.enemyManager.init(this.sceneManager.scene, spawnPoints, plantZone);
+    // 网格寻路器：让敌人绕开障碍/被堵时改走其他过道
+    this.pathfinder = new Pathfinder(this.mapBounds, this.mapObstacles);
+    this.enemyManager.init(this.sceneManager.scene, spawnPoints, plantZone, this.pathfinder);
 
     // 特效
     this.particleManager = new ParticleManager(this.sceneManager.scene);
@@ -227,6 +232,8 @@ export class Game {
   }
 
   _handleInput(dt) {
+    // 爆炸白屏期间冻结玩家操作
+    if (this.exploding) return;
     // 武器切换
     if (this.input.isKeyJustPressed('Digit1') || this.input.isKeyJustPressed('Numpad1')) this._switchWeapon(0);
     if (this.input.isKeyJustPressed('Digit2') || this.input.isKeyJustPressed('Numpad2')) this._switchWeapon(1);
@@ -618,6 +625,8 @@ export class Game {
   _onBombPlanted(data) {
     document.getElementById('bomb-timer')?.classList.add('show');
     this._showNotification('💣 炸弹已安放！快去拆除（靠近后按住 E）', 3000);
+    // C4 被放置时触发语音 "The bomb is down!"
+    this.audioFx?.bombPlantedVoice();
   }
 
   _onBombDefused() {
@@ -636,7 +645,35 @@ export class Game {
       const p = data.position.clone(); p.y = 0.5;
       this.particleManager.createMuzzleParticles(p, 40);
     }
-    this._endGame('lose');
+    // 先播放爆炸特效（白屏2s+震动+音效），结束后再结算失败
+    this._triggerExplosionFx();
+    setTimeout(() => {
+      this.exploding = false;
+      this._endGame('lose');
+    }, 2000);
+  }
+
+  /** C4 爆炸视听特效：屏幕白闪 2s + 镜头震动 + 爆炸音效 */
+  _triggerExplosionFx() {
+    if (this.exploding) return;
+    this.exploding = true;
+    // 释放指针锁定，避免玩家白屏期间误操作
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.audioFx?.bombExplosion();
+    const flash = document.getElementById('explosion-flash');
+    if (flash) {
+      flash.classList.remove('show');
+      // 强制重排以重新触发动画
+      void flash.offsetWidth;
+      flash.classList.add('show');
+    }
+    const canvas = this.canvas || document.getElementById('game-canvas');
+    if (canvas) {
+      canvas.classList.remove('shake');
+      void canvas.offsetWidth;
+      canvas.classList.add('shake');
+      setTimeout(() => canvas.classList.remove('shake'), 800);
+    }
   }
 
   _endGame(result) {
@@ -852,18 +889,11 @@ export class Game {
       ctx.strokeRect(zx - zw / 2, zy - zh / 2, zw, zh);
     }
 
-    // 绘制敌人 (红点；携带者额外黄环)
+    // 绘制敌人 (统一红点；不标识携带者，避免玩家一眼认出炸弹人)
     const enemies = this.enemyManager.getEnemies();
     enemies.forEach(e => {
       if (e.isDead) return;
       const [ex, ey] = toMap(e.group.position.x, e.group.position.z);
-      if (e.isCarrier) {
-        ctx.strokeStyle = '#ffcc00';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(ex, ey, 5, 0, Math.PI * 2);
-        ctx.stroke();
-      }
       ctx.fillStyle = '#ff4444';
       ctx.beginPath();
       ctx.arc(ex, ey, 3, 0, Math.PI * 2);

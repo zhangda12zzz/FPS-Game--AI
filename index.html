@@ -66,13 +66,45 @@
 
     /* === 击杀反馈绿幕视频（透明抠图） === */
     #kill-video-canvas {
-      position: fixed; top: 46%; left: 50%;
+      position: fixed; top: 62%; left: 50%;
       transform: translate(-50%, -50%);
       width: min(38vw, 520px); height: auto;
       pointer-events: none; z-index: 260;
       opacity: 0; transition: opacity 0.15s;
     }
     #kill-video-canvas.show { opacity: 1; }
+
+    /* === C4 爆炸白屏闪光 === */
+    #explosion-flash {
+      position: fixed; inset: 0;
+      background: #fff; opacity: 0;
+      pointer-events: none; z-index: 9999;
+      display: none;
+    }
+    #explosion-flash.show {
+      display: block;
+      animation: explosionFlash 2s ease-out forwards;
+    }
+    @keyframes explosionFlash {
+      0%   { opacity: 0; }
+      6%   { opacity: 1; }
+      55%  { opacity: 1; }
+      100% { opacity: 0; }
+    }
+    /* 镜头震动 */
+    #game-canvas.shake { animation: screenShake 0.8s ease-out; }
+    @keyframes screenShake {
+      0%, 100% { transform: translate(0, 0); }
+      10% { transform: translate(-8px, 6px); }
+      20% { transform: translate(7px, -8px); }
+      30% { transform: translate(-9px, -5px); }
+      40% { transform: translate(8px, 7px); }
+      50% { transform: translate(-6px, 5px); }
+      60% { transform: translate(6px, -6px); }
+      70% { transform: translate(-4px, 3px); }
+      80% { transform: translate(4px, -3px); }
+      90% { transform: translate(-2px, 2px); }
+    }
 
     /* HUD */
     #hud {
@@ -368,6 +400,9 @@
 
   <!-- 击杀反馈绿幕视频（透明抠图） -->
   <canvas id="kill-video-canvas"></canvas>
+
+  <!-- C4 爆炸白屏闪光 -->
+  <div id="explosion-flash"></div>
 
   <!-- 命中标记 -->
   <svg id="hitmarker" width="30" height="30" viewBox="0 0 30 30">

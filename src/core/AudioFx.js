@@ -117,6 +117,64 @@ export class AudioFx {
     noise.start(now);
   }
 
+  /**
+   * C4 爆炸音效：优先播放本地录音 /sounds/bomb.flac；加载/播放失败时回退到合成爆炸声。
+   */
+  bombExplosion() {
+    if (!this._bombSfxFailed) {
+      try {
+        const a = this._bombSfx || (this._bombSfx = new Audio('/sounds/bomb.flac'));
+        a.volume = Math.min(1, this.masterVolume * 1.6);
+        a.currentTime = 0;
+        const p = a.play();
+        if (p && p.catch) {
+          p.catch(() => { this._bombSfxFailed = true; this.explosion(); });
+        }
+        return;
+      } catch (e) {
+        this._bombSfxFailed = true;
+      }
+    }
+    this.explosion();
+  }
+
+  /**
+   * C4 安放语音 "The bomb is down!"
+   * 优先使用本地录音 /sounds/bomb_planted.mp3；不存在时回退到浏览器语音合成。
+   */
+  bombPlantedVoice() {
+    if (!this._bombVoiceFailed) {
+      try {
+        const a = this._bombVoice || (this._bombVoice = new Audio('/sounds/bomb_planted.mp3'));
+        a.volume = Math.min(1, this.masterVolume * 2.2);
+        a.currentTime = 0;
+        const p = a.play();
+        if (p && p.catch) {
+          p.catch(() => { this._bombVoiceFailed = true; this._speakBombDown(); });
+        }
+        return;
+      } catch (e) {
+        this._bombVoiceFailed = true;
+      }
+    }
+    this._speakBombDown();
+  }
+
+  /** 使用 Web Speech API 报“The bomb is down!” */
+  _speakBombDown() {
+    try {
+      const synth = window.speechSynthesis;
+      if (!synth || typeof SpeechSynthesisUtterance === 'undefined') return;
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance('The bomb is down!');
+      u.lang = 'en-US';
+      u.rate = 1.0;
+      u.pitch = 0.85;
+      u.volume = 1.0;
+      synth.speak(u);
+    } catch (e) { /* 忽略语音失败 */ }
+  }
+
   /** 安包进行提示音 */
   plantTick() { this._beep(440, 0.05, 'sine', 0.3); }
 

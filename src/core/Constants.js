@@ -81,6 +81,7 @@ export const BOMB = {
   DEFUSE_TIME: 5000,      // 拆包耗时(ms)
   COUNTDOWN: 15,          // 起爆倒计时(s)
   TRIGGER_RADIUS: 6,      // 携带者进入玩家老家触发安包的距离
+  APPROACH_RADIUS: 14,    // 携带者进入此范围后全力冲刺安包(不再收敛混入部队)
   DEFUSE_RADIUS: 3,       // 玩家拆包有效距离
   PICKUP_RADIUS: 1.5,     // AI 拾取掉落炸弹距离
   BLINK_INTERVAL: 0.4     // 红光闪烁周期(s)
