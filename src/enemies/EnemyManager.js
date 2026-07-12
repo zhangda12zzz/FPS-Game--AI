@@ -25,6 +25,9 @@ export class EnemyManager {
     // 寻路器(由 Game 注入)
     this.pathfinder = null;
 
+    // 掩体网格(由 Game 注入，用于敌人视线遮挡检测)
+    this.coverMeshes = [];
+
     // 随机安包点生成器(由 Game 注入：() => mapInstance.getRandomPlantPoint())
     this.getPlantPointFn = null;
 
@@ -110,6 +113,7 @@ export class EnemyManager {
     enemy.enemyAttackEnabled = this.enemyAttackEnabled;
     enemy.setPlantZone(this.plantZone);
     enemy.pathfinder = this.pathfinder;
+    enemy.coverMeshes = this.coverMeshes;
     this.scene.add(enemy.group);
     this.enemies.push(enemy);
     this.spawnedCount++;

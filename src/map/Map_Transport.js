@@ -32,15 +32,15 @@ export class Map_Transport extends MapLoader {
       { texture: shipMetal, roughness: 0.7, metalness: 0.3 }
     );
 
-    // 船舷（左右长边）
-    this.createBox({ x: 80, y: 2, z: 0.5 }, new THREE.Vector3(0, 1, -10), 0x4a4a3a,
+    // 船舷（左右长边）— 围墙高度 ×1.3
+    this.createBox({ x: 80, y: 6, z: 0.5 }, new THREE.Vector3(0, 1.3, -10), 0x4a4a3a,
       { texture: shipMetal, roughness: 0.65, metalness: 0.35 });
-    this.createBox({ x: 80, y: 2, z: 0.5 }, new THREE.Vector3(0, 1, 10), 0x4a4a3a,
+    this.createBox({ x: 80, y: 6, z: 0.5 }, new THREE.Vector3(0, 1.3, 10), 0x4a4a3a,
       { texture: shipMetal, roughness: 0.65, metalness: 0.35 });
     // 船头/船尾（两端短边）
-    this.createBox({ x: 0.5, y: 2, z: 20 }, new THREE.Vector3(40, 1, 0), 0x4a4a3a,
+    this.createBox({ x: 0.5, y: 6, z: 20 }, new THREE.Vector3(40, 1.3, 0), 0x4a4a3a,
       { texture: shipMetal, roughness: 0.65, metalness: 0.35 });
-    this.createBox({ x: 0.5, y: 2, z: 20 }, new THREE.Vector3(-40, 1, 0), 0x4a4a3a,
+    this.createBox({ x: 0.5, y: 6, z: 20 }, new THREE.Vector3(-40, 1.3, 0), 0x4a4a3a,
       { texture: shipMetal, roughness: 0.65, metalness: 0.35 });
 
     // === 船舷栏杆柱子 ===

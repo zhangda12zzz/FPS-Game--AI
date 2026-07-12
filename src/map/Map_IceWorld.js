@@ -34,7 +34,7 @@ export class Map_IceWorld extends MapLoader {
     this.createGround({ x: 120, z: 120 }, ICE_GROUND);
 
     // === 外围围墙（4 面，高 4m 封闭场地） ===
-    const half = 24, wallH = 4, wallT = 0.5;
+    const half = 24, wallH = 5.2, wallT = 0.5;  // 围墙高度 ×1.3 (原4m)
     this.createBox({ x: 48, y: wallH, z: wallT }, new THREE.Vector3(0, wallH/2, -half), ICE_WALL, { texture: wallTex, roughness: 0.4, metalness: 0.2 });
     this.createBox({ x: 48, y: wallH, z: wallT }, new THREE.Vector3(0, wallH/2,  half), ICE_WALL, { texture: wallTex, roughness: 0.4, metalness: 0.2 });
     this.createBox({ x: wallT, y: wallH, z: 48 }, new THREE.Vector3(-half, wallH/2, 0), ICE_WALL, { texture: wallTex, roughness: 0.4, metalness: 0.2 });
@@ -74,8 +74,24 @@ export class Map_IceWorld extends MapLoader {
       // 出生区前方的掩体
       { x: 20, z: 0, w: 1, d: 6, h: 2 },
       { x: -20, z: 0, w: 1, d: 6, h: 2 },
+      // 额外矮掩体（可跳跃登顶）
+      { x: 9, z: 4, w: 2, d: 2, h: 1.2 },
+      { x: 9, z: -4, w: 2, d: 2, h: 1.2 },
+      { x: -9, z: 4, w: 2, d: 2, h: 1.2 },
+      { x: -9, z: -4, w: 2, d: 2, h: 1.2 },
+      // 侧翼矮墙
+      { x: 15, z: 8, w: 3, d: 1, h: 1.0 },
+      { x: 15, z: -8, w: 3, d: 1, h: 1.0 },
+      { x: -15, z: 8, w: 3, d: 1, h: 1.0 },
+      { x: -15, z: -8, w: 3, d: 1, h: 1.0 },
     ];
     blocks.forEach(b => this._createIceBlock(b.x, b.z, b.w, b.d, b.h, ICE_BLOCK));
+
+    // === 连体阶梯冰块（矮→中→高，可连续跳跃登顶） ===
+    this._createIceSteps(4, 12, ICE_BLOCK);
+    this._createIceSteps(4, -12, ICE_BLOCK);
+    this._createIceSteps(-4, 12, ICE_BLOCK);
+    this._createIceSteps(-4, -12, ICE_BLOCK);
 
     // === 雪堆装饰（4 象限角落，纯视觉无碰撞） ===
     this._createSnowPile(20, 20);
@@ -153,6 +169,19 @@ export class Map_IceWorld extends MapLoader {
       new THREE.Vector3(x, h / 2, z),
       this.physics.groundMaterial
     );
+  }
+
+  /** 阶梯式冰块：矮(1.2m)→中(2.2m)→高(3.2m)，相邻排布可连续跳跃登顶 */
+  _createIceSteps(x, z, color) {
+    const dir = Math.sign(x) || 1;
+    const steps = [
+      { dx: 0,           h: 1.2 },
+      { dx: dir * 1.8,   h: 2.2 },
+      { dx: dir * 3.6,   h: 3.2 },
+    ];
+    steps.forEach(s => {
+      this._createIceBlock(x + s.dx, z, 2, 2, s.h, color);
+    });
   }
 
   /** 雪堆装饰（纯视觉，无碰撞体） */

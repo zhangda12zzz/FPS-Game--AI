@@ -70,6 +70,7 @@ export const ENEMY = {
   JUMP_FORCE: 10,        // 与玩家一致
   DETECTION_RANGE: 40,
   ATTACK_RANGE: 25,
+  STRAY_DISTANCE: 4,       // 近身游走阈值：距玩家4m内不再冲锋，改为绕行游走
   FIRE_RATE: 800,
   DAMAGE: 10,
   INITIAL_COUNT: 5,       // 首波同时出生数量
@@ -77,8 +78,36 @@ export const ENEMY = {
   TOTAL_FORCE: 20,        // 全场总兵力（=通关需击杀数）
   RESPAWN_DELAY: 5000,    // 每 5s 在敌方老巢补刷一名新敌人(ms)
   RESPAWN_TIME: 3000,
-  HEADSHOT_MULTIPLIER: 2.5
+  HEADSHOT_MULTIPLIER: 2.5,
+
+  // === 视野系统 ===
+  FOV_HALF: Math.PI / 4,      // 视野半角(45° = 90°总视野)
+  VISION_RANGE: 50,            // 最大视野距离
+
+  // === 弹药 ===
+  AMMO: 10,                     // 每个敌人子弹数
+
+  // === 距离等级 ===
+  DIST_CLOSE: 10,              // <10m = 近距离
+  DIST_MEDIUM: 35,            // 10-35m = 中距离，>35m = 远距离
+
+  // === 命中概率(基础，静止目标) [近, 中, 远] ===
+  HIT_CHANCE: [0.8, 0.55, 0.4],
+  HIT_MOVE_PENALTY: 0.7,          // 玩家移动时命中率降低系数
+
+  // === 爆头概率(命中时) ===
+  HEADSHOT_CHANCE: 0.35,
+
+  // === 伤害表 [近, 中, 远] ===
+  DMG_HEADSHOT: [75, 40, 20],
+  DMG_BODY:     [40, 25, 10],
 };
+
+// === 玩家生命系统 ===
+export const LIVES = {
+  MAX: 2,      // 总生命数
+};
+
 
 // 炸弹安放/拆除模式配置
 export const BOMB = {
@@ -89,7 +118,9 @@ export const BOMB = {
   APPROACH_RADIUS: 14,    // 携带者进入此范围后全力冲刺安包(不再收敛混入部队)
   DEFUSE_RADIUS: 3,       // 玩家拆包有效距离
   PICKUP_RADIUS: 1.5,     // AI 拾取掉落炸弹距离
-  BLINK_INTERVAL: 0.4     // 红光闪烁周期(s)
+  BLINK_INTERVAL: 0.4,    // 红光闪烁周期(s)
+  BASE_PLANT_RADIUS: 10, // 蓝区判定半径：携带者进入此范围即开始逗留计时
+  BASE_PLANT_TIMEOUT: 3   // 蓝区逗留超时(s)：超过则原地安包(防止被障碍卡住)
 };
 
 export const COLORS = {

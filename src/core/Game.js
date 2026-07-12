@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { eventBus } from './EventBus.js';
-import { PLAYER, WEAPONS, ENEMY, BOMB } from './Constants.js';
+import { PLAYER, WEAPONS, ENEMY, BOMB, LIVES } from './Constants.js';
 import { Input } from './Input.js';
 import { Physics } from './Physics.js';
 import { SceneManager } from './SceneManager.js';
@@ -49,11 +49,14 @@ export class Game {
     // 游戏状态
     this.kills = 0;
     this.deaths = 0;
+    this.lives = LIVES.MAX;   // 玩家生命数(2条)
     this.timer = 300; // 5分钟
     this.enemyAttackEnabled = false;
     this.isReloading = false;
     this.reloadStartTime = 0;
     this.reloadDuration = 0;
+    this.coverMeshes = [];     // 可阻挡子弹的掩体网格(墙/集装箱)
+    this._shouleiTimer = null;   // 手雷提示音随机定时器
 
     // 开镜(ADS)状态
     this.isAiming = false;
@@ -142,6 +145,7 @@ export class Game {
     // 2) 重置所有局内状态
     this.kills = 0;
     this.deaths = 0;
+    this.lives = LIVES.MAX;
     this.timer = 300;
     this.isReloading = false;
     this.enemyAttackEnabled = false;
@@ -179,6 +183,7 @@ export class Game {
     if (!this.enemyManager) {
       this.enemyManager = new EnemyManager(this.physics);
     }
+    this.enemyManager.coverMeshes = this.coverMeshes;
     this.enemyManager.init(this.sceneManager.scene, spawnPoints, plantZone, this.pathfinder);
     // 注入随机安包点生成器（每次指派携带者时调用，在玩家老家内部随机选点）
     this.enemyManager.getPlantPointFn = this.mapInstance?.getRandomPlantPoint
@@ -277,6 +282,7 @@ export class Game {
     }
 
     this.mapObstacles = [];
+    this.coverMeshes = [];
   }
 
   /**
@@ -289,6 +295,7 @@ export class Game {
     this.isPaused = false;
     this.audioFx?.stopAlarm();
     this.audioFx?.stopBattleAmbience();
+    this._stopShouleiLoop();
     // 隐藏结算面板（_endGame 会显示它）
     document.getElementById('result-overlay')?.classList.remove('show');
     document.getElementById('explosion-flash')?.classList.remove('show');
@@ -300,6 +307,7 @@ export class Game {
 
   _collectMapObstacles() {
     this.mapObstacles = [];
+    this.coverMeshes = [];
     this.sceneManager.scene.traverse(child => {
       if (child.isMesh && (child.userData.type === 'wall' || child.userData.type === 'container')) {
         const box = new THREE.Box3().setFromObject(child);
@@ -308,6 +316,7 @@ export class Game {
         // 跳过地板/甲板等薄层（高度过低），避免占满整个小地图
         if (size.y < 0.6) return;
         this.mapObstacles.push({ x: center.x, z: center.z, w: size.x, d: size.z });
+        this.coverMeshes.push(child);
       }
     });
   }
@@ -319,6 +328,7 @@ export class Game {
     this.clock.start();
     this.input.enablePointerLock();
     this.audioFx?.startBattleAmbience();
+    this._startShouleiLoop();
     this._gameLoop();
   }
 
@@ -330,10 +340,12 @@ export class Game {
       // 暂停时释放时钟增量，避免恢复时一帧 dt 过大
       this.clock.getDelta();
       this.audioFx?.pause?.();
+      this._stopShouleiLoop();
     } else {
       // 恢复时重置时钟
       this.clock.getDelta();
       this.audioFx?.resume?.();
+      this._startShouleiLoop();
     }
     return this.isPaused;
   }
@@ -341,6 +353,21 @@ export class Game {
   /** 查询是否处于暂停状态 */
   isGamePaused() {
     return this.isPaused;
+  }
+
+  /** 启动手雷提示音随机循环（10-20s 间隔） */
+  _startShouleiLoop() {
+    this._stopShouleiLoop();
+    const delay = 10000 + Math.random() * 10000; // 10-20s
+    this._shouleiTimer = setTimeout(() => {
+      this.audioFx?.playShoulei();
+      this._startShouleiLoop(); // 递归调度下一次
+    }, delay);
+  }
+
+  /** 停止手雷提示音循环 */
+  _stopShouleiLoop() {
+    if (this._shouleiTimer) { clearTimeout(this._shouleiTimer); this._shouleiTimer = null; }
   }
 
   _gameLoop() {
@@ -606,6 +633,23 @@ export class Game {
     const weapon = this.weaponManager.getCurrentWeapon();
     const canAds = !!(weapon && weapon.config && weapon.config.adsFov);
 
+    // 换弹期间强制退出开镜（即使右键按住也不恢复开镜）
+    if (this.isReloading) {
+      this.isAiming = false;
+      this.aimLocked = false;
+      this.weaponManager.setAiming(false);
+      this.playerController.sensitivityScale = 1;
+      this.playerController.moveSpeedScale = 1;
+      const targetFov = this.baseFov;
+      this.currentFov += (targetFov - this.currentFov) * Math.min(1, dt * 12);
+      const cam = this.sceneManager.camera;
+      if (Math.abs(cam.fov - this.currentFov) > 0.01) {
+        cam.fov = this.currentFov;
+        cam.updateProjectionMatrix();
+      }
+      return;
+    }
+
     if (canAds) {
       const CLICK_MS = 200; // 短于此时长视为“点击”，用于切换锁定
       if (this.input.isMouseJustPressed(2)) {
@@ -643,8 +687,10 @@ export class Game {
 
   _startReload() {
     const weapon = this.weaponManager.getCurrentWeapon();
-    // 1号（步枪）、2号（手枪）在开镜时禁止换弹；刀无开镜，不受影响
-    if (this.isAiming && weapon && (weapon.config.slot === 1 || weapon.config.slot === 2)) return;
+    // 开镜时按R：先退出开镜，再换弹（不再禁止）
+    if (this.isAiming) {
+      this.aimLocked = false;
+    }
     if (!weapon || !weapon.config.magSize) return; // 刀没有弹匣
     if (weapon.ammo >= weapon.config.magSize) return; // 满了不换
     if (weapon.reserveAmmo <= 0) return; // 没备弹不换
@@ -724,6 +770,7 @@ export class Game {
     this.isPaused = false;
     this.kills = 0;
     this.deaths = 0;
+    this.lives = LIVES.MAX;
     this.timer = 300;
     this.isReloading = false;
     this.enemyAttackEnabled = false;
@@ -772,8 +819,8 @@ export class Game {
     this._updateHUD();
     this._showNotification('游戏已重新开始');
 
-    // 重启背景电报环境声（_endGame 时已停止）
     this.audioFx?.startBattleAmbience();
+    this._startShouleiLoop();
 
     // 若因结算冻结过，重新启动循环与指针锁定
     if (!this.isRunning) {
@@ -795,10 +842,19 @@ export class Game {
 
   _onPlayerDied() {
     this.deaths++;
+    this.lives--;
+
+    if (this.lives <= 0) {
+      // 二条命用完 → 游戏失败
+      this._endGame('lose', 'lives');
+      return;
+    }
+
+    // 还有剩余生命 → 在老家随机复活（不更新子弹）
     this.health.reset();
     const spawnPoint = this.mapInstance?.getPlayerSpawn ? this.mapInstance.getPlayerSpawn() : new THREE.Vector3(34, 1, 0);
     this.playerController.respawn(spawnPoint);
-    this._showNotification('你已阵亡，正在重生...');
+    this._showNotification(`你已阵亡！剩余生命 ${this.lives}，正在重生...`);
   }
 
   _onEnemyKilled(data) {
@@ -814,26 +870,62 @@ export class Game {
   }
 
   _onEnemyAttack(data) {
-    // 敌人开枪音效（按距离衰减）
     const dist = data.distance ?? 20;
-    this.audioFx?.enemyGunshot(Math.max(0.15, 1 - dist / 40));
-
-    // 距离越远命中率越低
-    const hitChance = Math.max(0.1, 1 - data.distance / ENEMY.ATTACK_RANGE);
-    if (Math.random() < hitChance) {
-      this.health.takeDamage(data.damage);
-    }
-
-    // 敌人枪口火焰 + 弹道
+    const muzzlePos = data.muzzlePos;
     const playerPos = this.playerController.getPosition();
-    if (data.muzzlePos) {
-      this.muzzleFlash.show(data.muzzlePos);
 
-      const hitPoint = playerPos.clone();
-      hitPoint.y += 1.0;
-      this.bulletTracer.create(data.muzzlePos, hitPoint);
-      this.particleManager.createMuzzleParticles(data.muzzlePos, 2);
+    // 1) 掩体检测：从枪口到玩家做射线，检查是否被墙体/集装箱阻挡
+    const playerChest = playerPos.clone();
+    playerChest.y += 1.0;
+    let blocked = false;
+    if (muzzlePos && this.coverMeshes.length > 0) {
+      const dir = playerChest.clone().sub(muzzlePos);
+      const distToPlayer = dir.length();
+      dir.normalize();
+      this.raycaster.set(muzzlePos, dir);
+      this.raycaster.far = distToPlayer;
+      const hits = this.raycaster.intersectObjects(this.coverMeshes, false);
+      if (hits.length > 0 && hits[0].distance < distToPlayer - 0.5) {
+        blocked = true;
+        // 子弹打到掩体：显示弹道终点 + 枪口火光
+        this.muzzleFlash.show(muzzlePos);
+        this.bulletTracer.create(muzzlePos, hits[0].point);
+        this.particleManager.createMuzzleParticles(muzzlePos, 2);
+        this.audioFx?.enemyGunshot(Math.max(0.15, 1 - dist / 40));
+      }
     }
+    if (blocked) return;
+
+    // 2) 开枪音效 + 弹道特效
+    this.audioFx?.enemyGunshot(Math.max(0.15, 1 - dist / 40));
+    if (muzzlePos) {
+      this.muzzleFlash.show(muzzlePos);
+      this.bulletTracer.create(muzzlePos, playerChest);
+      this.particleManager.createMuzzleParticles(muzzlePos, 2);
+    }
+
+    // 3) 距离等级判定
+    let tier; // 0=近 1=中 2=远
+    if (dist < ENEMY.DIST_CLOSE) tier = 0;
+    else if (dist < ENEMY.DIST_MEDIUM) tier = 1;
+    else tier = 2;
+
+    // 4) 命中概率计算
+    let hitChance = ENEMY.HIT_CHANCE[tier];
+    if (this.playerController.isMoving) {
+      hitChance *= (1 - ENEMY.HIT_MOVE_PENALTY);
+    }
+
+    // 5) 命中判定
+    if (Math.random() >= hitChance) return; // 未命中
+
+    // 6) 爆头判定
+    const isHeadshot = Math.random() < ENEMY.HEADSHOT_CHANCE;
+
+    // 7) 伤害计算（距离等级 × 爆头/身体）
+    const damage = isHeadshot ? ENEMY.DMG_HEADSHOT[tier] : ENEMY.DMG_BODY[tier];
+    this.health.takeDamage(damage);
+    this.audioFx?.playHited();
   }
 
   // === 炸弹模式事件 ===
@@ -895,13 +987,14 @@ export class Game {
     }
   }
 
-  _endGame(result) {
+  _endGame(result, reason = null) {
     if (this.gameOver) return;
     this.gameOver = true;
     this.isRunning = false;
     this.bombManager?.reset();
     this.audioFx?.stopAlarm();
     this.audioFx?.stopBattleAmbience();
+    this._stopShouleiLoop();
     if (document.pointerLockElement) document.exitPointerLock();
 
     const overlay = document.getElementById('result-overlay');
@@ -915,7 +1008,11 @@ export class Game {
       } else {
         titleEl.textContent = '游戏失败';
         titleEl.className = 'lose';
-        descEl.textContent = '炸弹被引爆，防守失败！';
+        if (reason === 'lives') {
+          descEl.textContent = `生命耗尽！击杀 ${this.kills} / 阵亡 ${this.deaths}`;
+        } else {
+          descEl.textContent = '炸弹被引爆，防守失败！';
+        }
       }
     }
     if (overlay) overlay.classList.add('show');
@@ -1039,6 +1136,8 @@ export class Game {
     }
     const healthEl = document.getElementById('health-value');
     if (healthEl) healthEl.textContent = this.health.health;
+    const livesEl = document.getElementById('lives-display');
+    if (livesEl) livesEl.textContent = `♥${this.lives}`;
 
     const scoreEl = document.getElementById('score-display');
     if (scoreEl) scoreEl.textContent = `${this.kills} / ${this.deaths}`;

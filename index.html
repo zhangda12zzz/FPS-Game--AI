@@ -146,6 +146,8 @@
     }
     #hud-health .health-row { display: flex; align-items: center; gap: 8px; }
     #hud-health .icon { font-size: 20px; color: #4f4; }
+    #hud-health .lives-sep { color: rgba(255,255,255,0.3); font-size: 20px; }
+    #hud-health #lives-display { font-size: 18px; color: #ff6644; text-shadow: 0 0 6px rgba(255,80,40,0.5); }
     #hud-health .label { font-size: 10px; font-weight: normal; color: rgba(255,255,255,0.45); letter-spacing: 1px; margin-top: 2px; }
     #hud-ammo {
       display: flex; flex-direction: column; align-items: center;
@@ -601,6 +603,8 @@
       <div class="health-row">
         <span class="icon">+</span>
         <span id="health-value">100</span>
+        <span class="lives-sep">|</span>
+        <span id="lives-display">♥3</span>
       </div>
       <span class="label">HEALTH 生命值</span>
     </div>

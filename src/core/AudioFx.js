@@ -306,6 +306,39 @@ export class AudioFx {
     this._playNoise(0.06, 0.22, 'lowpass', 500);
   }
 
+  /** 随机环境音效：手雷提示音（较大音量） */
+  playShoulei() {
+    if (!this._shouleiFailed) {
+      try {
+        const a = this._shouleiSfx || (this._shouleiSfx = new Audio('/sounds/shoulei.wav'));
+        a.volume = Math.min(1, this.masterVolume * 2.0);
+        a.currentTime = 0;
+        const p = a.play();
+        if (p && p.catch) p.catch(() => { this._shouleiFailed = true; });
+        return;
+      } catch (e) {
+        this._shouleiFailed = true;
+      }
+    }
+  }
+
+  /** 玩家被击中音效 */
+  playHited() {
+    if (!this._hitedFailed) {
+      try {
+        const a = this._hitedSfx || (this._hitedSfx = new Audio('/sounds/hited.wav'));
+        a.volume = Math.min(1, this.masterVolume * 1.5);
+        a.currentTime = 0;
+        const p = a.play();
+        if (p && p.catch) p.catch(() => { this._hitedFailed = true; });
+        return;
+      } catch (e) {
+        this._hitedFailed = true;
+      }
+    }
+    this.hitFlesh(); // 回退到合成命中音
+  }
+
   /** 脚步声：{ sprint, crouch, volume, enemy } */
   footstep({ sprint = false, crouch = false, volume = 1, enemy = false } = {}) {
     this._ensure();

@@ -3,7 +3,7 @@ import * as CANNON from 'cannon-es';
 import { ENEMY, BOMB } from '../core/Constants.js';
 import { eventBus } from '../core/EventBus.js';
 
-const STATE = { IDLE: 'idle', PATROL: 'patrol', CHASE: 'chase', ATTACK: 'attack', DEAD: 'dead' };
+const STATE = { IDLE: 'idle', PATROL: 'patrol', CHASE: 'chase', ATTACK: 'attack', STRAY: 'stray', DEAD: 'dead' };
 
 export class Enemy {
   constructor(position, physics) {
@@ -14,6 +14,7 @@ export class Enemy {
     this.lastAttackTime = 0;
     this.patrolTarget = null;
     this.patrolTimer = 0;
+    this.strayTarget = null;     // 游走状态目标点
     this.enemyAttackEnabled = false;
     this.deathTimer = 0;
     this.originalMaterials = [];
@@ -38,6 +39,19 @@ export class Enemy {
     this._pathGoal = null;       // 当前路径的目标点
     this._pathTimer = 0;         // 路径重算计时
     this._holdPush = false;      // 携带者是否暂缓冲锋(混入部队)
+    this._baseTimer = 0;         // 携带者在蓝区逗留计时(超时则原地安包)
+    this.ammo = ENEMY.AMMO;       // 敌人弹药(用完即止)
+
+    // === 视野检测(节流0.15s + 角度 + 遮挡射线) ===
+    this._visionTimer = 0;        // 视野检测倒计时
+    this._canSeePlayer = false;   // 视野检测结果缓存
+    this._losRaycaster = new THREE.Raycaster(); // 视线遮挡射线
+    this.coverMeshes = [];        // 可遮挡视线的掩体网格(由 EnemyManager 注入)
+
+    // === 转身状态机(0.1s确认 + 角度变速转身) ===
+    this._turnState = 'idle';       // idle | waiting | turning | ready
+    this._turnWaitTimer = 0;        // 0.1s 连续检测计时
+    this._turnReady = false;        // 转身完成(可开枪)
 
     this.group = new THREE.Group();
     this._createSoldierModel();
@@ -464,10 +478,16 @@ export class Enemy {
     }
     this.isCrouching = false;
 
+    // 视野检测(每0.15s：角度FOV + 遮挡射线)
+    this._updateVision(dt, playerPosition);
+    // 转身逻辑(每帧：0.1s确认 + 角度变速转身)
+    this._updateTurn(dt, playerPosition);
+
     switch (this.state) {
       case STATE.PATROL: this._patrol(dt, playerPosition, distToPlayer); break;
       case STATE.CHASE: this._chase(dt, playerPosition, distToPlayer); break;
       case STATE.ATTACK: this._attack(dt, playerPosition, distToPlayer); break;
+      case STATE.STRAY: this._stray(dt, playerPosition, distToPlayer); break;
     }
   }
 
@@ -481,18 +501,31 @@ export class Enemy {
     const flat = this.group.position.clone(); flat.y = 0;
     const dist = flat.distanceTo(zone);
 
-    if (dist <= BOMB.TRIGGER_RADIUS) {
+    // 蓝区逗留计时：在玩家老家区域内累计时间，超过阈值则原地安包（防止被障碍卡住）
+    if (dist <= BOMB.BASE_PLANT_RADIUS) {
+      this._baseTimer += dt;
+    } else {
+      this._baseTimer = 0;
+    }
+
+    // 正常触发(距安包点2m内) 或 超时触发(蓝区逗留超过3s) → 原地安包
+    const shouldPlant = dist <= BOMB.TRIGGER_RADIUS || this._baseTimer >= BOMB.BASE_PLANT_TIMEOUT;
+
+    if (shouldPlant) {
       // 到位：停步下蹲安包
       this.body.velocity.x = 0; this.body.velocity.z = 0;
       this.isCrouching = true;
       this.isPlanting = true;
       const dir = zone.clone().sub(this.group.position); dir.y = 0;
-      if (dir.length() > 0.01) this.group.rotation.y = Math.atan2(dir.x, dir.z);
+      if (dir.length() > 0.01) this._smoothTurnTo(Math.atan2(dir.x, dir.z), dt);
       this.plantProgress += dt * 1000;
       if (this.plantProgress >= BOMB.PLANT_TIME) {
         this.hasPlanted = true;
         this.isPlanting = false;
         this.isCrouching = false;
+        this.isCarrier = false;           // 安包成功 → 转为攻击型敌人
+        if (this.bombPack) this.bombPack.visible = false;
+        this.state = STATE.CHASE;         // 立即进入追击状态
         const bombPos = this.group.position.clone(); // 保留 y = 携带者脚部高度(地表高度)
         eventBus.emit('bomb:plantComplete', { position: bombPos, from: this });
       }
@@ -544,7 +577,10 @@ export class Enemy {
 
     this.body.velocity.x = moveDir.x * speed;
     this.body.velocity.z = moveDir.z * speed;
-    this.group.rotation.y = Math.atan2(moveDir.x, moveDir.z);
+    // 正在向玩家转身或已对准时，不覆盖朝向(由 _updateTurn 控制)
+    if (this._turnState !== 'turning' && this._turnState !== 'ready') {
+      this._smoothTurnTo(Math.atan2(moveDir.x, moveDir.z), dt);
+    }
   }
 
   /**
@@ -606,16 +642,137 @@ export class Enemy {
 
   _chase(dt, playerPos, dist) {
     if (dist > ENEMY.DETECTION_RANGE * 1.5) { this.state = STATE.PATROL; return; }
+    if (dist < ENEMY.STRAY_DISTANCE) { this.state = STATE.STRAY; return; }
     if (dist < ENEMY.ATTACK_RANGE) { this.state = STATE.ATTACK; return; }
     // 自动寻路追击：可直视则直线逼近，被墙体阻挡则绕行其他过道
     this._navigateTo(playerPos, ENEMY.SPEED, dt);
   }
 
+  /**
+   * 视野检测(节流0.15s)：角度FOV + 遮挡射线。
+   * 结果缓存在 this._canSeePlayer，供 _attack/_stray 使用。
+   * 必须在自动转向玩家之前调用，以模拟“敌人需要先看到才能开火”。
+   */
+  _updateVision(dt, playerPos) {
+    this._visionTimer -= dt;
+    if (this._visionTimer > 0) return;
+    this._visionTimer = 0.10;
+
+    // 1. 距离检查
+    const toPlayer = playerPos.clone().sub(this.group.position);
+    toPlayer.y = 0;
+    const dist = toPlayer.length();
+    if (dist > ENEMY.VISION_RANGE || dist < 0.01) {
+      this._canSeePlayer = false;
+      return;
+    }
+
+    // 2. 角度检查(FOV锥)
+    toPlayer.normalize();
+    const fwd = new THREE.Vector3(Math.sin(this.group.rotation.y), 0, Math.cos(this.group.rotation.y));
+    if (fwd.dot(toPlayer) < Math.cos(ENEMY.FOV_HALF)) {
+      this._canSeePlayer = false;
+      return;
+    }
+
+    // 3. 视线遮挡检查：从眼部向玩家发射射线，被障碍物阻挡则不可见
+    if (this.coverMeshes.length === 0) {
+      this._canSeePlayer = true;
+      return;
+    }
+    const eyePos = this.group.position.clone();
+    eyePos.y += 1.6;  // 敌人眼部高度
+    const targetPos = playerPos.clone();
+    const dir = targetPos.clone().sub(eyePos);
+    const distToPlayer = dir.length();
+    dir.normalize();
+    this._losRaycaster.set(eyePos, dir);
+    this._losRaycaster.far = distToPlayer;
+    const hits = this._losRaycaster.intersectObjects(this.coverMeshes, false);
+    this._canSeePlayer = !(hits.length > 0 && hits[0].distance < distToPlayer - 0.5);
+  }
+
+  /** 消耗一发弹药并发射攻击事件（视野+弹药检查由调用方在发射前完成） */
+  _fire(playerPos, dist) {
+    const now = Date.now();
+    if (now - this.lastAttackTime < ENEMY.FIRE_RATE) return;
+    if (this.ammo <= 0) return;
+    this.lastAttackTime = now;
+    this.ammo--;
+    const muzzleWorld = this.gunMuzzlePos.clone().applyMatrix4(this.group.matrixWorld);
+    eventBus.emit('enemy:attack', {
+      enemy: this, distance: dist,
+      muzzlePos: muzzleWorld
+    });
+  }
+
+  /**
+   * 平滑转向目标角度。
+   * 角速度 2π rad/s（360°/1s），转身时间与角度差成正比。
+   * @returns true 表示已对准目标角度
+   */
+  _smoothTurnTo(targetAngle, dt) {
+    let diff = targetAngle - this.group.rotation.y;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    const maxStep = Math.PI * 2 * dt;   // 360°/s = 2π rad/s
+    if (Math.abs(diff) <= maxStep) {
+      this.group.rotation.y = targetAngle;
+      return true;
+    }
+    this.group.rotation.y += Math.sign(diff) * maxStep;
+    return false;
+  }
+
+  /**
+   * 转身逻辑(每帧调用)：
+   * 视野中持续 0.1s 检测到玩家 → 进入转身 → 转完后 _turnReady=true(可开枪)。
+   * 视野丢失时重置为 idle，_turnReady=false。
+   */
+  _updateTurn(dt, playerPos) {
+    if (this._canSeePlayer) {
+      const dir = playerPos.clone().sub(this.group.position);
+      dir.y = 0;
+      if (dir.length() < 0.01) return;
+      dir.normalize();
+      const targetAngle = Math.atan2(dir.x, dir.z);
+
+      switch (this._turnState) {
+        case 'idle':
+          this._turnState = 'waiting';
+          this._turnWaitTimer = 0;
+          this._turnReady = false;
+          break;
+        case 'waiting':
+          this._turnWaitTimer += dt;
+          if (this._turnWaitTimer >= 0.1) {
+            this._turnState = 'turning';
+          }
+          break;
+        case 'turning':
+          if (this._smoothTurnTo(targetAngle, dt)) {
+            this._turnState = 'ready';
+            this._turnReady = true;
+          }
+          break;
+        case 'ready':
+          // 已对准：保持朝向玩家
+          this.group.rotation.y = targetAngle;
+          break;
+      }
+    } else {
+      // 玩家不在视野中 → 重置转身状态
+      this._turnState = 'idle';
+      this._turnReady = false;
+    }
+  }
+
   _attack(dt, playerPos, dist) {
     if (dist > ENEMY.ATTACK_RANGE * 1.2) { this.state = STATE.CHASE; return; }
-    // 始终朝向玩家
-    const dir = playerPos.clone().sub(this.group.position); dir.y = 0; dir.normalize();
-    this.group.rotation.y = Math.atan2(dir.x, dir.z);
+    // 距离过近：切换到游走状态，防止穿模
+    if (dist < ENEMY.STRAY_DISTANCE) { this.state = STATE.STRAY; return; }
+
+    // 转身由 _updateTurn 处理(已在 update 中调用)
 
     // 攻击开关关闭时不原地静止：继续向玩家逐近，避免“玩家一靠近敌人就不动”
     if (!this.enemyAttackEnabled) {
@@ -625,15 +782,47 @@ export class Enemy {
 
     // 攻击开启：停步射击
     this.body.velocity.x = 0; this.body.velocity.z = 0;
-    const now = Date.now();
-    if (now - this.lastAttackTime >= ENEMY.FIRE_RATE) {
-      this.lastAttackTime = now;
-      // 敌人枪口位置(世界坐标)
-      const muzzleWorld = this.gunMuzzlePos.clone().applyMatrix4(this.group.matrixWorld);
-      eventBus.emit('enemy:attack', {
-        enemy: this, damage: ENEMY.DAMAGE, distance: dist,
-        muzzlePos: muzzleWorld
-      });
+
+    // 转身未完成 → 不开火
+    if (!this._turnReady) return;
+
+    this._fire(playerPos, dist);
+  }
+
+  /** 近身游走：距玩家太近时不再冲锋，在玩家周围随机游走并射击 */
+  _stray(dt, playerPos, dist) {
+    // 离开近身范围 → 回到攻击状态
+    if (dist > ENEMY.STRAY_DISTANCE * 1.8) {
+      this.state = STATE.ATTACK;
+      return;
+    }
+
+    // 转身由 _updateTurn 处理
+
+    // 攻击开关开启时：转完身才射击
+    if (this.enemyAttackEnabled && this._turnReady) {
+      this._fire(playerPos, dist);
+    }
+
+    // 随机游走：在玩家周围 4~6m 处选随机点
+    this.patrolTimer -= dt;
+    if (this.patrolTimer <= 0 || !this.strayTarget) {
+      const angle = Math.random() * Math.PI * 2;
+      const r = ENEMY.STRAY_DISTANCE + Math.random() * 2;
+      this.strayTarget = new THREE.Vector3(
+        playerPos.x + Math.cos(angle) * r,
+        0,
+        playerPos.z + Math.sin(angle) * r
+      );
+      this.patrolTimer = 1.5 + Math.random() * 1.5;
+    }
+
+    // 向游走目标移动
+    if (this.group.position.distanceTo(this.strayTarget) > 1) {
+      this._navigateTo(this.strayTarget, ENEMY.SPEED * 0.7, dt);
+    } else {
+      this.body.velocity.x = 0;
+      this.body.velocity.z = 0;
     }
   }
 
