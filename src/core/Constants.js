@@ -5,7 +5,7 @@ export const PLAYER = {
   SPEED: 5,
   SPRINT_SPEED: 8,
   CROUCH_SPEED: 2.5,
-  JUMP_FORCE: 6,
+  JUMP_FORCE: 10,       // 跳跃力
   MAX_HEALTH: 100,
   RADIUS: 0.4
 };
@@ -23,7 +23,7 @@ export const WEAPONS = {
     range: 2.5,
     fireRate: 500,
     slot: 3,
-    auto: false
+    auto: false,
   },
   PISTOL: {
     name: '沙鹰-修罗',
@@ -36,9 +36,12 @@ export const WEAPONS = {
     reloadTime: 1000,
     recoil: 0.02,
     adsFov: 45,                 // 右键开镜视野（手枪放大幅度较小）
-    adsPos: [0.05, -0.08, -0.40],  // 开镜时武器靠右、更远显小
+    adsPos: [0.05, -0.11, -0.40],  // 开镜时武器靠右下
+    adsScale: 0.62,             // 开镜时缩小显示（<1 变小）
+    muzzleOffset: [0.20, 0.27, 0.62], // 枪口特效偏移 [右, 下, 前]（手枪：更靠下、更近）
+    muzzleOffsetAds: [0.03, 0.10, 0.62], // 开镜时的枪口偏移（靠近准星中心）
     slot: 2,
-    auto: false
+    auto: false,
   },
   RIFLE: {
     name: 'AK47-火麒麟',
@@ -52,17 +55,19 @@ export const WEAPONS = {
     recoil: 0.035,
     adsFov: 38,                 // 右键开镜视野（步枪放大幅度较大）
     adsPos: [0, -0.05, -0.38],  // 开镜时武器抵近瞳孔位置
+    muzzleOffset: [0.11, 0.16, 0.8], // 枪口特效偏移 [右, 下, 前]（步枪：枪管长、更靠前）
+    muzzleOffsetAds: [0.0, 0.06, 0.8], // 开镜时的枪口偏移（靠近准星中心）
     slot: 1,
-    auto: true
+    auto: true,
   }
 };
 
 export const ENEMY = {
   HEALTH: 100,
-  SPEED: 5,               // 与玩家 PLAYER.SPEED 一致
-  SPRINT_SPEED: 8,        // 与玩家一致
-  CROUCH_SPEED: 2.5,      // 与玩家一致
-  JUMP_FORCE: 6,          // 与玩家一致
+  SPEED: 7,               // 常规移动速度（比玩家更快，增加压力）
+  SPRINT_SPEED: 10,       // 冲刺速度
+  CROUCH_SPEED: 2.5,      // 蹲行速度
+  JUMP_FORCE: 10,        // 与玩家一致
   DETECTION_RANGE: 40,
   ATTACK_RANGE: 25,
   FIRE_RATE: 800,
@@ -80,7 +85,7 @@ export const BOMB = {
   PLANT_TIME: 3000,       // 安包耗时(ms)
   DEFUSE_TIME: 5000,      // 拆包耗时(ms)
   COUNTDOWN: 15,          // 起爆倒计时(s)
-  TRIGGER_RADIUS: 6,      // 携带者进入玩家老家触发安包的距离
+  TRIGGER_RADIUS: 2,      // 携带者抵达安包点2m内才触发安包(确保在蓝区内部)
   APPROACH_RADIUS: 14,    // 携带者进入此范围后全力冲刺安包(不再收敛混入部队)
   DEFUSE_RADIUS: 3,       // 玩家拆包有效距离
   PICKUP_RADIUS: 1.5,     // AI 拾取掉落炸弹距离

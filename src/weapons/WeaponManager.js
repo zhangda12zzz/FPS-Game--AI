@@ -89,6 +89,10 @@ export class WeaponManager {
       }
     }
 
+    // 开镜缩放：在腰射(1)与开镜缩放之间插值，避免开镜时武器显示过大
+    const adsScale = (w && w.config && w.config.adsScale) || 1;
+    this.weaponMesh.scale.setScalar(1 + (adsScale - 1) * this.aimT);
+
     // 武器晚动：腰射时轻微晃动，开镜时几乎不晃
     const bob = (1 - this.aimT) * Math.sin(Date.now() * 0.003) * 0.002;
     this.weaponMesh.position.y += bob;

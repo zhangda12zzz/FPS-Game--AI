@@ -26,6 +26,7 @@ export class BombManager {
 
     this.defuseProgress = 0;   // 0~DEFUSE_TIME(ms)
     this.tickTimer = 0;
+    this._activeDefuse = false; // 本帧玩家是否正在有效拆弹
 
     this._bindEvents();
   }
@@ -40,11 +41,25 @@ export class BombManager {
 
   get isArmed() { return this.state === STATE.ARMED; }
 
+  /** 玩家本帧是否正在有效拆弹（按住 E 且在拆包范围内） */
+  get isPlayerDefusing() { return this._activeDefuse; }
+
+  /** 玩家是否处于拆包有效距离内 */
+  isInDefuseRange(playerPos) {
+    return this.state === STATE.ARMED && !!playerPos && !!this.bombPos &&
+      playerPos.distanceTo(this.bombPos) <= BOMB.DEFUSE_RADIUS;
+  }
+
+  /** 被打断（跳跃/下蹲）：立即清零拆弹进度 */
+  cancelDefuse() {
+    this.defuseProgress = 0;
+    this._activeDefuse = false;
+  }
+
   _plant(position) {
     if (this.state === STATE.ARMED) return;
     this._removeDropped();
-    this.bombPos = position.clone();
-    this.bombPos.y = 0;
+    this.bombPos = position.clone(); // y 来自携带者脚部高度(地表)
     this._createBombEntity(this.bombPos);
     this.countdown = BOMB.COUNTDOWN;
     this.defuseProgress = 0;
@@ -119,7 +134,7 @@ export class BombManager {
     const light = new THREE.PointLight(0xff2200, 1.6, 9);
     light.position.set(0, 0.4, 0);
     g.add(light);
-    g.position.set(pos.x, 0, pos.z);
+    g.position.set(pos.x, pos.y, pos.z); // y 来自携带者脚部高度(地表)
     this.scene.add(g);
     this.droppedGroup = g;
     this.droppedLight = light;
@@ -150,7 +165,7 @@ export class BombManager {
       this.droppedLight.intensity = on ? 2.0 : 0.4;
     }
 
-    if (this.state !== STATE.ARMED) return;
+    if (this.state !== STATE.ARMED) { this._activeDefuse = false; return; }
 
     // 红光闪烁
     this.blinkTimer += dt;
@@ -170,6 +185,7 @@ export class BombManager {
       playerPos.distanceTo(this.bombPos) <= BOMB.DEFUSE_RADIUS;
 
     if (defuseHeld && inRange) {
+      this._activeDefuse = true;
       this.defuseProgress += dt * 1000;
       this.tickTimer += dt;
       if (this.tickTimer >= 0.25) { this.tickTimer = 0; this.audio?.defuseTick(); }
@@ -178,6 +194,7 @@ export class BombManager {
         return;
       }
     } else {
+      this._activeDefuse = false;
       // 松开/离开则进度回退
       this.defuseProgress = Math.max(0, this.defuseProgress - dt * 2000);
     }

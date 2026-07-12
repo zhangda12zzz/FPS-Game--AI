@@ -12,8 +12,6 @@ import { ParticleManager } from '../effects/ParticleManager.js';
 import { MuzzleFlash } from '../effects/MuzzleFlash.js';
 import { BulletTracer } from '../effects/BulletTracer.js';
 import { BloodSplatter } from '../effects/BloodSplatter.js';
-import { MapLoader } from '../map/MapLoader.js';
-import { Map_Transport } from '../map/Map_Transport.js';
 import { BombManager } from '../modes/BombManager.js';
 import { AudioFx } from './AudioFx.js';
 import { KillVideo } from '../ui/KillVideo.js';
@@ -102,17 +100,12 @@ export class Game {
       this._showNotification('⚠ 敌方炸弹携带者正在逼近你的老家！', 2500);
     });
 
-    // 控制按钮
+    // 控制按钮（“重新开始”已统一跳回选图界面，由 main.js 处理）
     document.getElementById('btn-enemy-attack')?.addEventListener('click', () => this.toggleEnemyAttack());
-    document.getElementById('btn-reset-game')?.addEventListener('click', () => this.resetGame());
   }
 
   async init() {
-    // 加载地图 (避免循环依赖，直接使用Map_Transport)
-    this.mapInstance = new Map_Transport(this.sceneManager.scene, this.physics);
-    this.mapInstance.load();
-    // 收集障碍物信息用于小地图
-    this._collectMapObstacles();
+    // init() 仅做一次性初始化（不再在此加载地图，地图由 loadMap() 负责）
 
     // 玩家
     this.playerController = new PlayerController(this.sceneManager.camera, this.physics, this.input, this.canvas);
@@ -122,35 +115,187 @@ export class Game {
     this.weaponManager = new WeaponManager(this.sceneManager.camera, this.sceneManager.scene);
     await this.weaponManager.init();
 
-    // 敌人（在敌方老家出生）
-    this.enemyManager = new EnemyManager(this.physics);
-    const spawnPoints = this.mapInstance?.enemySpawnPoints || this.mapInstance?.spawnPoints || [];
-    const plantZone = this.mapInstance?.getPlantZone ? this.mapInstance.getPlantZone() : new THREE.Vector3(34, 0, 0);
-    this.plantZone = plantZone;
-    // 网格寻路器：让敌人绕开障碍/被堵时改走其他过道
-    this.pathfinder = new Pathfinder(this.mapBounds, this.mapObstacles);
-    this.enemyManager.init(this.sceneManager.scene, spawnPoints, plantZone, this.pathfinder);
-
     // 特效
     this.particleManager = new ParticleManager(this.sceneManager.scene);
     this.muzzleFlash = new MuzzleFlash(this.sceneManager.scene);
     this.bulletTracer = new BulletTracer(this.sceneManager.scene);
     this.bloodSplatter = new BloodSplatter(this.sceneManager.scene);
 
-    // 炸弹模式：先建协调器，再指派首位携带者
+    // 炸弹模式协调器（无状态，复用即可）
     this.bombManager = new BombManager(this.sceneManager.scene, this.audioFx);
+
+    // 绘制准星
+    this._drawCrosshair();
+  }
+
+  /**
+   * 加载指定地图并初始化本局（可重复调用以实现换图）
+   * @param {{ id: string, name: string, loader: (scene, physics)=>object }} mapEntry
+   */
+  loadMap(mapEntry) {
+    if (!mapEntry) throw new Error('loadMap: 缺少 mapEntry');
+    this.currentMapEntry = mapEntry;
+
+    // 1) 清空旧地图/敌人/物理体（保留场景中的灯光/相机）
+    this._clearWorld();
+
+    // 2) 重置所有局内状态
+    this.kills = 0;
+    this.deaths = 0;
+    this.timer = 300;
+    this.isReloading = false;
+    this.enemyAttackEnabled = false;
+    this.gameOver = false;
+    this.exploding = false;
+    this.isAiming = false;
+    this.aimLocked = false;
+    this.currentFov = this.baseFov;
+    if (this.sceneManager?.camera?.fov !== this.baseFov) {
+      this.sceneManager.camera.fov = this.baseFov;
+      this.sceneManager.camera.updateProjectionMatrix();
+    }
+    document.getElementById('reload-bar')?.classList.remove('show');
+    document.getElementById('reload-text')?.classList.remove('show');
+    document.getElementById('result-overlay')?.classList.remove('show');
+    document.getElementById('bomb-timer')?.classList.remove('show');
+    document.getElementById('defuse-bar')?.classList.remove('show');
+    document.getElementById('defuse-text')?.classList.remove('show');
+    document.getElementById('explosion-flash')?.classList.remove('show');
+    document.getElementById('btn-enemy-attack')?.classList.remove('active');
+    const atkBtn = document.getElementById('btn-enemy-attack');
+    if (atkBtn) atkBtn.innerHTML = `<span class="btn-key">F2</span>敌人攻击: 关`;
+
+    // 3) 加载地图
+    this.mapInstance = mapEntry.loader(this.sceneManager.scene, this.physics);
+    this.mapInstance.load();
+    this.mapBounds = this.mapInstance?.bounds || { minX: -40, maxX: 40, minZ: -10, maxZ: 10 };
+    this._collectMapObstacles();
+
+    // 4) 敌人
+    const spawnPoints = this.mapInstance?.enemySpawnPoints || this.mapInstance?.spawnPoints || [];
+    const plantZone = this.mapInstance?.getPlantZone ? this.mapInstance.getPlantZone() : new THREE.Vector3(34, 0, 0);
+    this.plantZone = plantZone;
+    this.pathfinder = new Pathfinder(this.mapBounds, this.mapObstacles);
+    if (!this.enemyManager) {
+      this.enemyManager = new EnemyManager(this.physics);
+    }
+    this.enemyManager.init(this.sceneManager.scene, spawnPoints, plantZone, this.pathfinder);
+    // 注入随机安包点生成器（每次指派携带者时调用，在玩家老家内部随机选点）
+    this.enemyManager.getPlantPointFn = this.mapInstance?.getRandomPlantPoint
+      ? () => this.mapInstance.getRandomPlantPoint()
+      : null;
+
+    // 5) 炸弹指派
+    this.bombManager?.reset();
     this.enemyManager.assignCarrier();
 
-    // 玩家重生
+    // 6) 玩家重生
     const spawnPoint = this.mapInstance.getPlayerSpawn ? this.mapInstance.getPlayerSpawn() : new THREE.Vector3(10, 1, 0);
     this.playerController.respawn(spawnPoint);
     this.health.reset();
 
-    // 绘制准星
-    this._drawCrosshair();
+    // 7) 武器重置
+    this.weaponManager.switchTo(0);
+    this.weaponManager.resetAllAmmo();
 
-    // 初始HUD更新
+    // 8) HUD（音效由 start() 统一启动，避免重复调用导致 BGM fallback 到合成声）
     this._updateHUD();
+    this._showNotification(`地图: ${mapEntry.name}`);
+  }
+
+  /**
+   * 清理场景中的可重生成对象（地图网格/物理体/敌人/炸弹实体），
+   * 保留相机、灯光、雾效，以便重新加载新地图。
+   */
+  _clearWorld() {
+    const scene = this.sceneManager.scene;
+    const camera = this.sceneManager.camera;
+
+    // 1) 收集需要保留的对象：相机（含武器模型子节点）、灯光、枪口闪光池
+    const muzzleMeshes = new Set();
+    if (this.muzzleFlash) {
+      this.muzzleFlash.flashes?.forEach(f => muzzleMeshes.add(f.mesh));
+    }
+    const toRemove = [];
+    scene.children.forEach(child => {
+      if (child === camera) return;           // 相机（武器挂在其下）
+      if (child.isLight) return;               // 所有灯光
+      if (muzzleMeshes.has(child)) return;     // 枪口闪光球
+      toRemove.push(child);
+    });
+    toRemove.forEach(obj => {
+      scene.remove(obj);
+      obj.traverse?.(c => {
+        if (c.isMesh) {
+          c.geometry?.dispose?.();
+          if (c.material) {
+            if (c.material.map) c.material.map.dispose?.();
+            c.material.dispose?.();
+          }
+        }
+      });
+    });
+
+    // 2) 清空所有物理体（地面、围墙、掩体、敌人、玩家全部移除）
+    while (this.physics.bodies.length > 0) {
+      this.physics.removeBody(this.physics.bodies[0]);
+    }
+
+    // 3) 重置特效管理器内部引用（避免 update() 操作已 dispose 的网格）
+    if (this.particleManager) this.particleManager.particles = [];
+    if (this.bulletTracer)  this.bulletTracer.tracers  = [];
+    if (this.bloodSplatter) this.bloodSplatter.splatters = [];
+    if (this.muzzleFlash) {
+      this.muzzleFlash.flashes?.forEach(f => { f.life = 0; if (f.mesh) f.mesh.visible = false; });
+    }
+
+    // 4) 清空敌人状态
+    if (this.enemyManager && Array.isArray(this.enemyManager.enemies)) {
+      this.enemyManager.enemies = [];
+      this.enemyManager.spawnedCount = 0;
+      this.enemyManager.killCount = 0;
+      this.enemyManager.droppedBomb = null;
+      this.enemyManager.bombActive = false;
+    }
+
+    // 5) 清空炸弹实体引用
+    if (this.bombManager) {
+      this.bombManager.bombGroup = null;
+      this.bombManager.bombLight = null;
+      this.bombManager.lamp = null;
+      this.bombManager.droppedGroup = null;
+      this.bombManager.droppedLight = null;
+      this.bombManager.state = 'idle';
+      this.bombManager.bombPos = null;
+      this.bombManager.countdown = 0;
+      this.bombManager.defuseProgress = 0;
+    }
+
+    // 6) 重建玩家物理体（playerMaterial 已在 init 时创建，可复用）
+    if (this.playerController) {
+      this.playerController._createPhysicsBody();
+    }
+
+    this.mapObstacles = [];
+  }
+
+  /**
+   * 从游戏内返回“选择地图”界面（由 main.js 负责 UI 切换与重新选图）。
+   * 暂停游戏循环、隐藏 HUD 结算面板，等待外部调用 loadMap() 继续。
+   */
+  goToMapSelect() {
+    // 停止游戏循环
+    this.isRunning = false;
+    this.isPaused = false;
+    this.audioFx?.stopAlarm();
+    this.audioFx?.stopBattleAmbience();
+    // 隐藏结算面板（_endGame 会显示它）
+    document.getElementById('result-overlay')?.classList.remove('show');
+    document.getElementById('explosion-flash')?.classList.remove('show');
+    // 清空世界（避免回到主界面后场景仍渲染地图）
+    this._clearWorld();
+    // 通知 main.js 显示地图选择界面（F5 / HUD 按钮等内部触发路径）
+    eventBus.emit('game:goToMapSelect');
   }
 
   _collectMapObstacles() {
@@ -222,14 +367,30 @@ export class Game {
     this.physics.update(dt);
 
     // 炸弹模式更新（E 键按住拆包）
-    const defuseHeld = this.input.isKeyPressed('KeyE');
-    this.bombManager.update(dt, this.playerController.getPosition(), defuseHeld);
+    const playerPos = this.playerController.getPosition();
+    // 跳跃/下蹲会打断拆弹（观察、小范围移动不打断）
+    const interruptDefuse = this.input.isKeyPressed('Space') ||
+      this.input.isKeyPressed('ControlLeft') || this.input.isKeyPressed('ControlRight');
+    const wantDefuse = this.input.isKeyPressed('KeyE');
+    const defuseHeld = wantDefuse && !interruptDefuse;
+    this.bombManager.update(dt, playerPos, defuseHeld);
+    // 按住 E 但因跳跃/下蹲被打断 → 立即清零进度
+    if (wantDefuse && interruptDefuse && this.bombManager.isInDefuseRange(playerPos)) {
+      this.bombManager.cancelDefuse();
+    }
+    // 记录玩家是否正在拆弹（用于屏蔽攻击/换枪与限制移动）
+    this.isDefusing = this.bombManager.isPlayerDefusing;
 
     // 处理输入
     this._handleInput(dt);
 
     // 开镜（右键 ADS）状态与相机 FOV 同步
     this._updateAim(dt);
+
+    // 拆弹时大幅降速，使玩家只能在小范围内移动
+    if (this.isDefusing) {
+      this.playerController.moveSpeedScale = Math.min(this.playerController.moveSpeedScale, 0.3);
+    }
 
     // 脚步声（玩家 + 敌人）
     this._updateFootsteps(dt);
@@ -260,38 +421,41 @@ export class Game {
   _handleInput(dt) {
     // 爆炸白屏期间冻结玩家操作
     if (this.exploding) return;
-    // 武器切换
-    if (this.input.isKeyJustPressed('Digit1') || this.input.isKeyJustPressed('Numpad1')) this._switchWeapon(0);
-    if (this.input.isKeyJustPressed('Digit2') || this.input.isKeyJustPressed('Numpad2')) this._switchWeapon(1);
-    if (this.input.isKeyJustPressed('Digit3') || this.input.isKeyJustPressed('Numpad3')) this._switchWeapon(2);
-
-    // 射击 (非换弹中)
-    if (!this.isReloading && this.input.isMouseDown()) {
-      const weapon = this.weaponManager.getCurrentWeapon();
-      if (weapon && weapon.canFire()) {
-        if (weapon.ammo !== undefined && weapon.ammo <= 0) {
-          // 弹匣空了自动换弹
-          this._startReload();
-        } else {
-          weapon.fire();
-          this._handleShot();
+    // 拆弹中：禁止换枪与射击（仅允许观察与小范围移动，其余功能键仍可用）
+    if (!this.isDefusing) {
+      // 武器切换
+      if (this.input.isKeyJustPressed('Digit1') || this.input.isKeyJustPressed('Numpad1')) this._switchWeapon(0);
+      if (this.input.isKeyJustPressed('Digit2') || this.input.isKeyJustPressed('Numpad2')) this._switchWeapon(1);
+      if (this.input.isKeyJustPressed('Digit3') || this.input.isKeyJustPressed('Numpad3')) this._switchWeapon(2);
+  
+      // 射击 (非换弹中)
+      if (!this.isReloading && this.input.isMouseDown()) {
+        const weapon = this.weaponManager.getCurrentWeapon();
+        if (weapon && weapon.canFire()) {
+          if (weapon.ammo !== undefined && weapon.ammo <= 0) {
+            // 弹匣空了自动换弹
+            this._startReload();
+          } else {
+            weapon.fire();
+            this._handleShot();
+          }
         }
       }
+  
+      // 换弹 R
+      if (this.input.isKeyJustPressed('KeyR') && !this.isReloading) {
+        this._startReload();
+      }
     }
-
-    // 换弹 R
-    if (this.input.isKeyJustPressed('KeyR') && !this.isReloading) {
-      this._startReload();
-    }
-
+  
     // 敌人攻击开关 F2
     if (this.input.isKeyJustPressed('F2')) {
       this.toggleEnemyAttack();
     }
 
-    // 重新开始 F5
+    // 重新开始 F5（统一跳回选图界面）
     if (this.input.isKeyJustPressed('F5')) {
-      this.resetGame();
+      this.goToMapSelect();
     }
 
     // 计分板 Tab
@@ -363,13 +527,15 @@ export class Game {
 
     // 计算枪口世界位置
     const muzzleWorldPos = this._getPlayerMuzzlePos();
+    // 刀（slot 3）为近战武器，不显示弹道与枪口火光
+    const showMuzzleFx = config.slot !== 3;
 
     if (hits.length > 0) {
       const hit = hits[0];
       const enemy = hit.object.userData.enemy;
 
       // 弹道
-      this.bulletTracer.create(muzzleWorldPos, hit.point);
+      if (showMuzzleFx) this.bulletTracer.create(muzzleWorldPos, hit.point);
 
       // 血液
       this.bloodSplatter.create(hit.point, hit.face?.normal || new THREE.Vector3(0, 1, 0));
@@ -403,17 +569,17 @@ export class Game {
       this.raycaster.ray.direction.normalize();
       dir.copy(this.raycaster.ray.direction);
       const endPoint = muzzleWorldPos.clone().add(dir.multiplyScalar(config.range || 100));
-      this.bulletTracer.create(muzzleWorldPos, endPoint);
+      if (showMuzzleFx) this.bulletTracer.create(muzzleWorldPos, endPoint);
     }
 
     // 枪口火焰
-    this.muzzleFlash.show(muzzleWorldPos);
+    if (showMuzzleFx) this.muzzleFlash.show(muzzleWorldPos);
 
     // 后坐力
     this.playerController.applyRecoil(config.recoil || 0.02);
 
     // 粒子
-    this.particleManager.createMuzzleParticles(muzzleWorldPos, 3);
+    if (showMuzzleFx) this.particleManager.createMuzzleParticles(muzzleWorldPos, 3);
   }
 
   _getPlayerMuzzlePos() {
@@ -421,10 +587,19 @@ export class Game {
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
     const down = new THREE.Vector3(0, -1, 0);
+    // 每把武器各自的枪口偏移 [右, 下, 前]，未配置则用默认值
+    const weapon = this.weaponManager.getCurrentWeapon();
+    const hip = (weapon && weapon.config && weapon.config.muzzleOffset) || [0.25, 0.15, 0.8];
+    // 开镜时的枪口偏移（未配置则与腰射一致），按开镜进度在两者间插值
+    const ads = (weapon && weapon.config && weapon.config.muzzleOffsetAds) || hip;
+    const t = this.weaponManager.getAimProgress ? this.weaponManager.getAimProgress() : 0;
+    const ox = hip[0] + (ads[0] - hip[0]) * t;
+    const oy = hip[1] + (ads[1] - hip[1]) * t;
+    const oz = hip[2] + (ads[2] - hip[2]) * t;
     return camera.position.clone()
-      .add(right.multiplyScalar(0.25))
-      .add(down.multiplyScalar(0.15))
-      .add(forward.multiplyScalar(0.8));
+      .add(right.multiplyScalar(ox))
+      .add(down.multiplyScalar(oy))
+      .add(forward.multiplyScalar(oz));
   }
 
   _updateAim(dt) {
@@ -468,6 +643,8 @@ export class Game {
 
   _startReload() {
     const weapon = this.weaponManager.getCurrentWeapon();
+    // 1号（步枪）、2号（手枪）在开镜时禁止换弹；刀无开镜，不受影响
+    if (this.isAiming && weapon && (weapon.config.slot === 1 || weapon.config.slot === 2)) return;
     if (!weapon || !weapon.config.magSize) return; // 刀没有弹匣
     if (weapon.ammo >= weapon.config.magSize) return; // 满了不换
     if (weapon.reserveAmmo <= 0) return; // 没备弹不换
@@ -543,28 +720,39 @@ export class Game {
   }
 
   resetGame() {
-    // 完全重置
-    this.isPaused = false; // 重置暂停状态
+    // 同地图重置（不切换地图）：重置计分、敌人、玩家、武器、UI
+    this.isPaused = false;
     this.kills = 0;
     this.deaths = 0;
     this.timer = 300;
     this.isReloading = false;
     this.enemyAttackEnabled = false;
+    this.gameOver = false;
+    this.exploding = false;
+    this.isAiming = false;
+    this.aimLocked = false;
+    this.currentFov = this.baseFov;
+    if (this.sceneManager?.camera?.fov !== this.baseFov) {
+      this.sceneManager.camera.fov = this.baseFov;
+      this.sceneManager.camera.updateProjectionMatrix();
+    }
 
     document.getElementById('reload-bar')?.classList.remove('show');
     document.getElementById('reload-text')?.classList.remove('show');
-
-    // 重置炸弹模式 + 结算界面
-    this.bombManager?.reset();
-    this.audioFx?.stopAlarm();
     document.getElementById('result-overlay')?.classList.remove('show');
     document.getElementById('bomb-timer')?.classList.remove('show');
     document.getElementById('defuse-bar')?.classList.remove('show');
     document.getElementById('defuse-text')?.classList.remove('show');
+    document.getElementById('explosion-flash')?.classList.remove('show');
+
+    // 重置炸弹模式
+    this.bombManager?.reset();
+    this.audioFx?.stopAlarm();
 
     // 重置敌人并重新指派携带者
-    this.enemyManager.resetEnemies();
-    this.enemyManager.setEnemyAttack(false);
+    this.enemyManager?.resetEnemies();
+    this.enemyManager?.setEnemyAttack(false);
+    this.enemyManager?.assignCarrier();
 
     const btn = document.getElementById('btn-enemy-attack');
     if (btn) {
@@ -580,8 +768,6 @@ export class Game {
     // 重置武器
     this.weaponManager.switchTo(0);
     this.weaponManager.resetAllAmmo();
-    this.aimLocked = false;
-    this.isAiming = false;
 
     this._updateHUD();
     this._showNotification('游戏已重新开始');
@@ -590,8 +776,7 @@ export class Game {
     this.audioFx?.startBattleAmbience();
 
     // 若因结算冻结过，重新启动循环与指针锁定
-    if (this.gameOver) {
-      this.gameOver = false;
+    if (!this.isRunning) {
       this.isRunning = true;
       this.clock.getDelta(); // 丢弃暂停期间的大 delta
       this.input.enablePointerLock();

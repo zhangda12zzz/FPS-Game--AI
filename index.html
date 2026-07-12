@@ -338,6 +338,83 @@
     #start-screen .start-btn:hover { background: linear-gradient(180deg, #e05500, #a03800); transform: scale(1.05); }
     #start-screen .controls { margin-top: 40px; font-size: 13px; color: #888; text-align: center; line-height: 2; }
 
+    /* 选择地图界面 */
+    #map-select-screen {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(135deg, #0f1525 0%, #16213e 60%, #0b2140 100%);
+      display: none; flex-direction: column;
+      justify-content: flex-start; align-items: center;
+      z-index: 1000; color: #fff;
+      padding: 60px 20px 20px;
+      overflow-y: auto;
+    }
+    #map-select-screen.show { display: flex; }
+    #map-select-screen h1 {
+      font-size: 36px; color: #ff0; margin-bottom: 8px;
+      text-shadow: 0 0 18px rgba(255,255,0,0.35);
+      letter-spacing: 4px;
+    }
+    #map-select-screen .subtitle {
+      font-size: 14px; color: #888; margin-bottom: 32px;
+    }
+    .map-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 320px));
+      gap: 22px;
+      max-width: 1100px;
+      width: 100%;
+      justify-content: center;
+    }
+    .map-card {
+      background: rgba(20,28,48,0.7);
+      border: 2px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex; flex-direction: column;
+      text-align: left;
+    }
+    .map-card:hover {
+      border-color: #ff6600;
+      transform: translateY(-4px);
+      box-shadow: 0 6px 24px rgba(255,102,0,0.25);
+      background: rgba(30,40,70,0.85);
+    }
+    .map-thumb {
+      width: 100%; height: 130px;
+      background: linear-gradient(135deg, #3a4a6a 0%, #1e2a40 100%);
+      border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 48px; color: rgba(255,255,255,0.25);
+      margin-bottom: 12px;
+      background-size: cover; background-position: center;
+    }
+    .map-card .map-name {
+      font-size: 18px; font-weight: bold; color: #ff0;
+      margin-bottom: 6px;
+    }
+    .map-card .map-desc {
+      font-size: 12px; color: #aaa; line-height: 1.6;
+    }
+    .map-card .map-id {
+      margin-top: 10px;
+      font-size: 10px; color: #6cf; letter-spacing: 1px;
+      font-family: 'Consolas', monospace;
+    }
+    #map-select-back {
+      margin-top: 30px;
+      padding: 10px 28px;
+      background: rgba(0,0,0,0.45);
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: #ccc; cursor: pointer;
+      font-size: 14px; transition: all 0.15s;
+    }
+    #map-select-back:hover {
+      border-color: #ff6600; color: #fff;
+    }
+
     /* === 右侧按键提示面板 === */
     #key-hints {
       position: fixed; right: 12px; top: 42%;
@@ -555,6 +632,14 @@
       WASD 移动 | 鼠标视角 | 左键射击 | 空格跳跃 | Ctrl 下蹲 | Shift 冲刺<br>
       1/2/3 切换武器 | R 换弹 | E 拆包 | F2 敌人攻击 | F5 重新开始 | Tab 计分板
     </div>
+  </div>
+
+  <!-- 选择地图界面 -->
+  <div id="map-select-screen">
+    <h1>选择地图</h1>
+    <div class="subtitle">选择一张地图开始战斗</div>
+    <div class="map-grid" id="map-grid"></div>
+    <button id="map-select-back">返回主界面</button>
   </div>
 
   <!-- 右侧按键提示面板 -->

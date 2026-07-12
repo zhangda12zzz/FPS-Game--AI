@@ -1,12 +1,116 @@
 import { Game } from './core/Game.js';
+import { MAP_REGISTRY, findMapById } from './map/MapRegistry.js';
+import { eventBus } from './core/EventBus.js';
 
 const startBtn = document.getElementById('start-btn');
 const startScreen = document.getElementById('start-screen');
+const mapSelectScreen = document.getElementById('map-select-screen');
+const mapGrid = document.getElementById('map-grid');
+const mapSelectBackBtn = document.getElementById('map-select-back');
 const canvas = document.getElementById('game-canvas');
 
 let game = null;
 
-// 总音量调节（可拖动滑块，同时作用于背景音乐与战斗音效）
+// ===================== 屏幕切换 =====================
+// 'start' | 'map-select' | 'game'
+let currentScreen = 'start';
+
+function showStartScreen() {
+  currentScreen = 'start';
+  startScreen.style.display = 'flex';
+  mapSelectScreen.classList.remove('show');
+}
+
+function showMapSelect() {
+  currentScreen = 'map-select';
+  startScreen.style.display = 'none';
+  mapSelectScreen.classList.add('show');
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+
+function hideMapSelect() {
+  mapSelectScreen.classList.remove('show');
+}
+
+// ===================== 地图卡片渲染 =====================
+function renderMapGrid() {
+  if (!mapGrid) return;
+  mapGrid.innerHTML = '';
+  MAP_REGISTRY.forEach((entry) => {
+    const card = document.createElement('div');
+    card.className = 'map-card';
+    card.dataset.mapId = entry.id;
+
+    // 缩略图（可选：entry.thumb 为图片路径）
+    const thumb = document.createElement('div');
+    thumb.className = 'map-thumb';
+    if (entry.thumb) {
+      thumb.style.backgroundImage = `url('${entry.thumb}')`;
+    } else {
+      // 没有缩略图时用文字/图标占位
+      thumb.textContent = entry.icon || '🗺️';
+    }
+    card.appendChild(thumb);
+
+    const name = document.createElement('div');
+    name.className = 'map-name';
+    name.textContent = entry.name;
+    card.appendChild(name);
+
+    const desc = document.createElement('div');
+    desc.className = 'map-desc';
+    desc.textContent = entry.desc || '';
+    card.appendChild(desc);
+
+    const idTag = document.createElement('div');
+    idTag.className = 'map-id';
+    idTag.textContent = `ID: ${entry.id}`;
+    card.appendChild(idTag);
+
+    card.addEventListener('click', () => startGameWithMap(entry));
+    mapGrid.appendChild(card);
+  });
+}
+
+// ===================== 开始/切换地图 =====================
+async function startGameWithMap(mapEntry) {
+  try {
+    hideMapSelect();
+    if (!game) {
+      // 首次启动：初始化游戏（武器/玩家/特效/炸弹协调器，但不加载地图）
+      game = new Game(canvas);
+      await game.init();
+      // 首次用户交互后解锁 WebAudio 并应用当前总音量
+      game.audioFx?.resume();
+      applyVolume(parseInt(volumeSlider?.value ?? '40', 10));
+    } else {
+      // 已经在游戏中（从结算/游戏中切图），先清理世界
+      // loadMap 内部会调用 _clearWorld()，无需重复
+    }
+    // 加载指定地图并开始游戏循环
+    game.loadMap(mapEntry);
+    game.start();
+    canvas.requestPointerLock();
+    currentScreen = 'game';
+  } catch (err) {
+    console.error('Start with map failed:', err);
+    showMapSelect();
+    startBtn.textContent = '开始游戏';
+    startBtn.disabled = false;
+    alert('地图加载失败: ' + err.message);
+  }
+}
+
+// ===================== 回到地图选择界面 =====================
+function goToMapSelect() {
+  if (game) {
+    game.goToMapSelect();
+  }
+  showMapSelect();
+  setPauseUI(false);
+}
+
+// ===================== 总音量调节 =====================
 const volumeSlider = document.getElementById('volume-slider');
 const volumeValue = document.getElementById('volume-value');
 const volumeIcon = document.getElementById('volume-icon');
@@ -26,32 +130,40 @@ if (volumeSlider) {
   volumeSlider.addEventListener('input', () => applyVolume(parseInt(volumeSlider.value, 10)));
 }
 
-startBtn.addEventListener('click', async () => {
-  try {
-    startBtn.textContent = '加载中...';
-    startBtn.disabled = true;
+// ===================== 事件绑定 =====================
 
-    if (!game) {
-      game = new Game(canvas);
-      await game.init();
-      startScreen.style.display = 'none';
-      // 首次用户交互后解锁 WebAudio
-      game.audioFx?.resume();
-      // 应用当前总音量设置
-      applyVolume(parseInt(volumeSlider?.value ?? '40', 10));
-      canvas.requestPointerLock();
-      game.start();
-    }
-  } catch (err) {
-    console.error('Game init failed:', err);
-    startScreen.style.display = 'flex';
-    startBtn.textContent = '开始游戏';
-    startBtn.disabled = false;
-    alert('游戏初始化失败: ' + err.message);
-  }
+// 主界面"开始游戏" → 进入地图选择界面
+startBtn.addEventListener('click', () => {
+  startBtn.blur();
+  renderMapGrid();
+  showMapSelect();
 });
 
-// === 暂停 / 继续 ===
+// 地图选择界面"返回主界面"
+mapSelectBackBtn?.addEventListener('click', () => {
+  mapSelectBackBtn.blur();
+  showStartScreen();
+});
+
+// 结算界面"重新开始" → 回到地图选择
+document.getElementById('result-restart')?.addEventListener('click', () => {
+  goToMapSelect();
+});
+
+// HUD 左上角“重新开始”按钮 → 回到地图选择
+document.getElementById('btn-reset-game')?.addEventListener('click', () => {
+  goToMapSelect();
+});
+
+// Game 内部触发回到选图界面（F5 键等） → 显示地图选择 UI
+eventBus.on('game:goToMapSelect', () => {
+  // Game.goToMapSelect() 已做世界清理与音频停止，这里只管 UI
+  renderMapGrid();
+  showMapSelect();
+  setPauseUI(false);
+});
+
+// ===================== 暂停 / 继续 =====================
 const pauseBtn = document.getElementById('pause-btn');
 const pauseOverlay = document.getElementById('pause-overlay');
 
@@ -64,11 +176,10 @@ function setPauseUI(paused) {
 }
 
 function togglePause() {
-  if (!game) return;
+  if (!game || currentScreen !== 'game') return;
   const paused = game.togglePause();
   setPauseUI(paused);
   if (paused) {
-    // 暂停时释放指针锁，让玩家能点击其他按钮
     if (document.pointerLockElement) document.exitPointerLock();
   } else {
     canvas.requestPointerLock();
@@ -77,32 +188,26 @@ function togglePause() {
 
 pauseBtn?.addEventListener('click', (e) => {
   e.stopPropagation();
-  // 避免与点击画面重新锁定指针锁冲突
   togglePause();
-  // 点击后立即失焦，避免空格/回车（跳跃键）再次“点击”按钮而误触发暂停
   pauseBtn.blur();
 });
 
-// 点击画面重新获取指针锁定（仅在未暂停时）
+// 点击画面重新获取指针锁定（仅在"游戏中"且未暂停时）
 canvas.addEventListener('click', () => {
-  if (startScreen.style.display === 'none' && !game?.isGamePaused()) {
+  if (currentScreen === 'game' && !game?.isGamePaused()) {
     canvas.requestPointerLock();
   }
 });
 
-// ESC 退出指针锁 → 自动暂停；重新锁定 → 自动继续
+// ESC / 指针锁变化：仅在"游戏中"才触发暂停
 document.addEventListener('pointerlockchange', () => {
-  if (!game || startScreen.style.display !== 'none') return;
+  if (!game || currentScreen !== 'game') return;
   if (!document.pointerLockElement) {
-    // 释放锁 → 进入暂停。
-    // 仅在“正常游玩”时才视为 Esc 主动暂停；
-    // 爆炸特效(exploding)与结算(gameOver)也会释放指针锁，此时不应显示暂停页面
     if (!game.isGamePaused() && !game.gameOver && !game.exploding) {
       game.togglePause();
       setPauseUI(true);
     }
   } else {
-    // 重新锁定 → 继续，并清除按钮焦点，避免空格/回车误触发 HUD 按钮
     if (document.activeElement && document.activeElement !== document.body) {
       document.activeElement.blur();
     }
@@ -113,10 +218,8 @@ document.addEventListener('pointerlockchange', () => {
   }
 });
 
-// 结算界面“重新开始”按钮
-document.getElementById('result-restart')?.addEventListener('click', () => {
-  if (!game) return;
-  game.resetGame();
-  setPauseUI(false);
-  canvas.requestPointerLock();
-});
+// 浏览器原生 F5（刷新）保持默认行为；
+// 游戏内的 F5 拦截在 Game.js（Input）里，会触发 goToMapSelect()。
+
+// 初次进入主界面
+showStartScreen();

@@ -117,9 +117,18 @@ export class Map_Transport extends MapLoader {
     return arr[Math.floor(Math.random() * arr.length)].clone();
   }
 
-  /** 安包区中心（玩家老家中心），供炸弹携带者寻路与触发安包 */
+  /** 安包区中心（玩家老家中心），供小地图绘制与携带者初始寻路 */
   getPlantZone() {
     return new THREE.Vector3(34, 0, 0);
+  }
+
+  /** 在玩家老家蓝区内部随机选一个安包点（确保在蓝区内、靠里边） */
+  getRandomPlantPoint() {
+    // 蓝区: x=30~38, z=-8~8 (center x=34, PlaneGeometry 8×16)
+    // 取蓝区内部偏深位置 x=32~36, z=-4~4
+    const x = 32 + Math.random() * 4;
+    const z = (Math.random() - 0.5) * 8;
+    return new THREE.Vector3(x, 0, z);
   }
 
   /** 批量创建镜像对称集装箱（沿长边X镜像） */

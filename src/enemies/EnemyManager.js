@@ -25,6 +25,9 @@ export class EnemyManager {
     // 寻路器(由 Game 注入)
     this.pathfinder = null;
 
+    // 随机安包点生成器(由 Game 注入：() => mapInstance.getRandomPlantPoint())
+    this.getPlantPointFn = null;
+
     this._bindEvents();
   }
 
@@ -120,6 +123,10 @@ export class EnemyManager {
     if (alive.length === 0) return;
     const pick = alive[Math.floor(Math.random() * alive.length)];
     pick.setCarrier(true);
+    // 每次指派都给一个新的随机安包点（玩家老家内部随机位置）
+    if (this.getPlantPointFn) {
+      pick.setPlantZone(this.getPlantPointFn());
+    }
     eventBus.emit('enemy:carrierAssigned', { enemy: pick });
   }
 
@@ -216,6 +223,10 @@ export class EnemyManager {
     if (nearestDist <= BOMB.PICKUP_RADIUS) {
       nearest.pickupTarget = null;
       nearest.setCarrier(true);
+      // 拾取后也重新分配随机安包点
+      if (this.getPlantPointFn) {
+        nearest.setPlantZone(this.getPlantPointFn());
+      }
       this.droppedBomb = null;
       eventBus.emit('bomb:pickedUp', { enemy: nearest });
       eventBus.emit('enemy:carrierAssigned', { enemy: nearest });

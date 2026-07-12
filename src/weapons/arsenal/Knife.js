@@ -17,8 +17,8 @@ export class Knife extends Weapon {
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(0.50, 0.40), mat);
     group.add(plane);
 
-    // 整体定位（右下角）
-    group.position.set(0.15, -0.12, -0.4);
+    // 整体定位（靠中下）
+    group.position.set(0.04, -0.12, -0.4);
 
     return group;
   }

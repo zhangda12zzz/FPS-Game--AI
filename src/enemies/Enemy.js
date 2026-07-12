@@ -69,31 +69,31 @@ export class Enemy {
     const gunMetal = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8, roughness: 0.3 });
     const belt = new THREE.MeshStandardMaterial({ color: 0x5a4a2a, roughness: 0.8 });
 
-    // === 头部 ===
+    // === 头部（缩小约 35%，提高爆头难度） ===
     // 头盔 (扁圆柱 + 帽檐)
-    const helmetGeo = new THREE.CylinderGeometry(0.22, 0.24, 0.15, 10);
+    const helmetGeo = new THREE.CylinderGeometry(0.15, 0.165, 0.11, 10);
     this.helmet = new THREE.Mesh(helmetGeo, olive);
-    this.helmet.position.y = 1.65;
+    this.helmet.position.y = 1.63;
     this.helmet.castShadow = true;
     this.helmet.userData.isHead = true;
     g.add(this.helmet);
     // 帽檐
-    const brimGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.02, 12, 1, false, 0, Math.PI);
+    const brimGeo = new THREE.CylinderGeometry(0.19, 0.19, 0.015, 12, 1, false, 0, Math.PI);
     this.helmetBrim = new THREE.Mesh(brimGeo, darkOlive);
-    this.helmetBrim.position.set(0, 1.59, 0.12);
+    this.helmetBrim.position.set(0, 1.59, 0.09);
     this.helmetBrim.rotation.x = -0.3;
     this.helmetBrim.userData.isHead = true;
     g.add(this.helmetBrim);
     // 红色头巾 (敌方标识)
-    const bandanaGeo = new THREE.CylinderGeometry(0.235, 0.235, 0.04, 10);
+    const bandanaGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.03, 10);
     this.bandana = new THREE.Mesh(bandanaGeo, red);
-    this.bandana.position.y = 1.57;
+    this.bandana.position.y = 1.575;
     this.bandana.userData.isHead = true;
     g.add(this.bandana);
     // 面部
-    const faceGeo = new THREE.SphereGeometry(0.16, 8, 8);
+    const faceGeo = new THREE.SphereGeometry(0.105, 8, 8);
     this.face = new THREE.Mesh(faceGeo, skin);
-    this.face.position.set(0, 1.52, 0.08);
+    this.face.position.set(0, 1.53, 0.06);
     this.face.scale.set(1, 0.8, 0.9);
     this.face.userData.isHead = true;
     g.add(this.face);
@@ -404,8 +404,7 @@ export class Enemy {
 
     // 携带者阵亡且尚未完成安包 → 炸弹掉落（可被其他 AI 拾取）
     if (this.isCarrier && !this.hasPlanted) {
-      const dropPos = this.group.position.clone();
-      dropPos.y = 0;
+      const dropPos = this.group.position.clone(); // 保留 y = 携带者脚部高度(地表高度)
       eventBus.emit('bomb:dropped', { position: dropPos, from: this });
     }
     this.isCarrier = false;
@@ -494,7 +493,7 @@ export class Enemy {
         this.hasPlanted = true;
         this.isPlanting = false;
         this.isCrouching = false;
-        const bombPos = this.group.position.clone(); bombPos.y = 0;
+        const bombPos = this.group.position.clone(); // 保留 y = 携带者脚部高度(地表高度)
         eventBus.emit('bomb:plantComplete', { position: bombPos, from: this });
       }
       return;
