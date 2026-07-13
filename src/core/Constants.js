@@ -20,7 +20,7 @@ export const WEAPONS = {
     name: '屠龙',
     damage: 55,
     headshotDamage: 100,
-    range: 2.5,
+    range: 4,
     fireRate: 500,
     slot: 3,
     auto: false,

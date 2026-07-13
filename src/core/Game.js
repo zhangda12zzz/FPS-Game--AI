@@ -135,7 +135,7 @@ export class Game {
    * 加载指定地图并初始化本局（可重复调用以实现换图）
    * @param {{ id: string, name: string, loader: (scene, physics)=>object }} mapEntry
    */
-  loadMap(mapEntry) {
+  async loadMap(mapEntry) {
     if (!mapEntry) throw new Error('loadMap: 缺少 mapEntry');
     this.currentMapEntry = mapEntry;
 
@@ -184,7 +184,7 @@ export class Game {
       this.enemyManager = new EnemyManager(this.physics);
     }
     this.enemyManager.coverMeshes = this.coverMeshes;
-    this.enemyManager.init(this.sceneManager.scene, spawnPoints, plantZone, this.pathfinder);
+    await this.enemyManager.init(this.sceneManager.scene, spawnPoints, plantZone, this.pathfinder);
     // 注入随机安包点生成器（每次指派携带者时调用，在玩家老家内部随机选点）
     this.enemyManager.getPlantPointFn = this.mapInstance?.getRandomPlantPoint
       ? () => this.mapInstance.getRandomPlantPoint()

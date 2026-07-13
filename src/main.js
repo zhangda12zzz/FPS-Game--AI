@@ -88,7 +88,7 @@ async function startGameWithMap(mapEntry) {
       // loadMap 内部会调用 _clearWorld()，无需重复
     }
     // 加载指定地图并开始游戏循环
-    game.loadMap(mapEntry);
+    await game.loadMap(mapEntry);
     game.start();
     canvas.requestPointerLock();
     currentScreen = 'game';

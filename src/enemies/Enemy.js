@@ -1,11 +1,39 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { ENEMY, BOMB } from '../core/Constants.js';
 import { eventBus } from '../core/EventBus.js';
 
 const STATE = { IDLE: 'idle', PATROL: 'patrol', CHASE: 'chase', ATTACK: 'attack', STRAY: 'stray', DEAD: 'dead' };
 
 export class Enemy {
+  // === GLB 模型模板(预加载后缓存，所有敌人共享克隆) ===
+  static modelTemplate = null;
+  static _modelPromise = null;
+  static MODEL_FACING = 0;         // 在自动对齐基础上的额外朝向偏移(若背对移动则改为 Math.PI)
+  static TARGET_HEIGHT = 1.8;      // 目标身高(单位)
+
+  /** 预加载 enemy.glb，缓存到 Enemy.modelTemplate；失败则回退程序化模型 */
+  static preloadModel() {
+    if (Enemy._modelPromise) return Enemy._modelPromise;
+    Enemy._modelPromise = new Promise((resolve) => {
+      const loader = new GLTFLoader();
+      loader.load(
+        '/models/enemy.glb',
+        (gltf) => {
+          Enemy.modelTemplate = gltf.scene;
+          resolve(Enemy.modelTemplate);
+        },
+        undefined,
+        (err) => {
+          console.warn('[Enemy] enemy.glb 加载失败，回退程序化模型:', err);
+          Enemy.modelTemplate = null;
+          resolve(null);
+        }
+      );
+    });
+    return Enemy._modelPromise;
+  }
   constructor(position, physics) {
     this.health = ENEMY.HEALTH;
     this.isDead = false;
@@ -54,7 +82,11 @@ export class Enemy {
     this._turnReady = false;        // 转身完成(可开枪)
 
     this.group = new THREE.Group();
-    this._createSoldierModel();
+    if (Enemy.modelTemplate) {
+      this._createModelFromGLB();
+    } else {
+      this._createSoldierModel();
+    }
     this.group.position.copy(position);
 
     // 物理体
@@ -71,6 +103,129 @@ export class Enemy {
       if (contact.bi === this.body) contact.ni.negate(normal); else normal.copy(contact.ni);
       if (normal.y > 0.5) this.canJump = true;
     });
+  }
+
+  /**
+   * 从预加载的 enemy.glb 模板克隆构建敌人模型。
+   * - 每个实例克隆独立材质(避免闪白/受击高亮影响所有敌人)
+   * - 自动对齐：依据胯线(双腿连线)+枪/手臂方向，将模型正前方旋到 +Z
+   * - 缩放到 TARGET_HEIGHT，脚落 y=0，X/Z 居中
+   * - 最靠上 2 块 = 头部(爆头)；最高 2 块 = 双腿，脚部随腿摆动
+   */
+  _createModelFromGLB() {
+    const g = this.group;
+    const model = Enemy.modelTemplate.clone(true);
+
+    // per-instance 克隆材质，并开启阴影
+    model.traverse((c) => {
+      if (c.isMesh) {
+        c.castShadow = true;
+        c.receiveShadow = false;
+        if (Array.isArray(c.material)) {
+          c.material = c.material.map((m) => m.clone());
+        } else if (c.material) {
+          c.material = c.material.clone();
+        }
+      }
+    });
+
+    // 采集各部件世界包围盒(model 无父级，世界==自身局部)
+    const gather = () => {
+      const arr = [];
+      model.traverse((c) => {
+        if (!c.isMesh) return;
+        const b = new THREE.Box3().setFromObject(c);
+        arr.push({ mesh: c, center: b.getCenter(new THREE.Vector3()), size: b.getSize(new THREE.Vector3()), box: b });
+      });
+      return arr;
+    };
+
+    // 1) 缩放到目标身高
+    const box1 = new THREE.Box3().setFromObject(model);
+    const size1 = box1.getSize(new THREE.Vector3());
+    const scale = size1.y > 1e-4 ? (Enemy.TARGET_HEIGHT / size1.y) : 1;
+    model.scale.setScalar(scale);
+    model.updateMatrixWorld(true);
+
+    // 2) 识别双腿(最高 2 块)与躯干中轴；用上半身水平跨度最长的部件(枪)确定正前方(枪口方向)
+    let parts = gather();
+    const byH = [...parts].sort((a, b) => b.size.y - a.size.y);
+    const legA = byH[0], legB = byH[1];
+    const torsoAxis = legA.center.clone().add(legB.center).multiplyScalar(0.5); torsoAxis.y = 0;
+    // 上半身水平跨度最长的部件即为枪，其相对躯干中轴的方向 = 枪口/正前方
+    let gun = null, gunSpan = -1;
+    for (const p of parts) {
+      if (p.center.y < 0.3) continue; // 只看上半身，排除腿/脚
+      const span = Math.max(p.size.x, p.size.z);
+      if (span > gunSpan) { gunSpan = span; gun = p; }
+    }
+    let fwd = gun ? gun.center.clone().sub(torsoAxis) : null;
+    if (fwd) fwd.y = 0;
+    if (!fwd || fwd.lengthSq() < 1e-6) {
+      // 退化兜底：用肯线垂线
+      const hip = legB.center.clone().sub(legA.center); hip.y = 0;
+      fwd = new THREE.Vector3(hip.z, 0, -hip.x);
+    }
+    if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, 1);
+    fwd.normalize();
+    // 旋转模型使枪口(正前方)对齐 +Z(再叠加可调偏移 MODEL_FACING)
+    const yaw = Math.atan2(fwd.x, fwd.z);
+    model.rotation.y = Enemy.MODEL_FACING - yaw;
+    model.updateMatrixWorld(true);
+
+    // 3) 脚落 y=0，X/Z 居中
+    const box2 = new THREE.Box3().setFromObject(model);
+    const center2 = box2.getCenter(new THREE.Vector3());
+    model.position.x -= center2.x;
+    model.position.z -= center2.z;
+    model.position.y -= box2.min.y;
+    g.add(model);
+    model.updateMatrixWorld(true);
+
+    // 4) 对齐后重新采集
+    parts = gather();
+    const legs = [...parts].sort((a, b) => b.size.y - a.size.y).slice(0, 2);
+    const legMinCy = Math.min(legs[0].center.y, legs[1].center.y);
+
+    // 头部 = 中心 Y 最高的 2 块
+    const byTop = [...parts].sort((a, b) => b.center.y - a.center.y);
+    this.headParts = byTop.slice(0, 2).map((p) => p.mesh);
+    this.headParts.forEach((m) => { m.userData.isHead = true; });
+
+    // 脚 = 明显低于腿中心的部件(随对应腿摆动)
+    const feet = parts.filter((p) => !legs.includes(p) && p.center.y < legMinCy - 0.15);
+
+    // 5) 左右腿按 X 区分(对齐后肯线沿 X)；各套髀部 pivot，并把最近的脚一同挂入
+    legs.sort((a, b) => b.center.x - a.center.x);
+    const pivots = [];
+    for (const leg of legs) {
+      const other = legs.find((l) => l !== leg);
+      const pivot = new THREE.Group();
+      pivot.position.set(leg.center.x, leg.box.max.y, leg.center.z);
+      g.add(pivot);
+      pivot.attach(leg.mesh);   // 保留世界变换重挂父级
+      for (const f of feet) {
+        if (f._taken) continue;
+        const dThis = Math.hypot(f.center.x - leg.center.x, f.center.z - leg.center.z);
+        const dOther = other ? Math.hypot(f.center.x - other.center.x, f.center.z - other.center.z) : Infinity;
+        if (dThis <= dOther) { pivot.attach(f.mesh); f._taken = true; }
+      }
+      pivots.push(pivot);
+    }
+    this.rLegPivot = pivots[0] || null;
+    this.lLegPivot = pivots[1] || null;
+    this.rShinPivot = null;
+    this.lShinPivot = null;
+
+    // 6) 收集材质用于闪白效果
+    g.traverse((child) => {
+      if (child.isMesh && child.material) {
+        this.originalMaterials.push({ mesh: child, color: child.material.color ? child.material.color.clone() : new THREE.Color(0xffffff) });
+      }
+    });
+
+    // 7) 枪口位置(用于敌人开火特效起点)
+    this.gunMuzzlePos = new THREE.Vector3(0, Enemy.TARGET_HEIGHT * 0.6, 0.4);
   }
 
   _createSoldierModel() {
@@ -309,6 +464,9 @@ export class Enemy {
         this.originalMaterials.push({ mesh: child, color: child.material.color.clone() });
       }
     });
+
+    // 头部部件集合(用于爆头判定与受击高亮)
+    this.headParts = [this.helmet, this.helmetBrim, this.bandana, this.face].filter(Boolean);
   }
 
   /** 行走动画：根据移动速度驱动双腿交替摆动 */
@@ -840,7 +998,7 @@ export class Enemy {
   _isHeadMesh(mesh) {
     if (!mesh) return false;
     if (mesh.userData && mesh.userData.isHead === true) return true;
-    return mesh === this.helmet || mesh === this.helmetBrim || mesh === this.bandana || mesh === this.face;
+    return (this.headParts || []).includes(mesh);
   }
 
 
@@ -850,7 +1008,7 @@ export class Enemy {
       if (this.hitmarkerTimer <= 0) {
         this.hitmarkerTimer = 0;
         // 清除头部mesh的红色发光
-        [this.helmet, this.helmetBrim, this.bandana, this.face].forEach(m => {
+        (this.headParts || []).forEach(m => {
           if (m && m.material) {
             m.material.emissive = new THREE.Color(0x000000);
             m.material.emissiveIntensity = 0;
@@ -863,7 +1021,7 @@ export class Enemy {
   triggerHitmarker() {
     this.hitmarkerTimer = 0.3;
     // 头部mesh变红发光
-    [this.helmet, this.helmetBrim, this.bandana, this.face].forEach(m => {
+    (this.headParts || []).forEach(m => {
       if (m && m.material) {
         m.material.emissive = new THREE.Color(0xff0000);
         m.material.emissiveIntensity = 0.8;

@@ -64,11 +64,13 @@ export class EnemyManager {
     });
   }
 
-  init(scene, spawnPoints, plantZone = null, pathfinder = null) {
+  async init(scene, spawnPoints, plantZone = null, pathfinder = null) {
     this.scene = scene;
     this.spawnPoints = spawnPoints;
     this.plantZone = plantZone;
     this.pathfinder = pathfinder;
+    // 预加载 enemy.glb 模型(失败自动回退程序化模型)
+    await Enemy.preloadModel();
     this._spawnInitialEnemies();
   }
 
