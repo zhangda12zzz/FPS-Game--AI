@@ -40,18 +40,33 @@ export class Map_IceWorld extends MapLoader {
     this.createBox({ x: wallT, y: wallH, z: 48 }, new THREE.Vector3(-half, wallH/2, 0), ICE_WALL, { texture: wallTex, roughness: 0.4, metalness: 0.2 });
     this.createBox({ x: wallT, y: wallH, z: 48 }, new THREE.Vector3( half, wallH/2, 0), ICE_WALL, { texture: wallTex, roughness: 0.4, metalness: 0.2 });
 
-    // === "田"字隔墙：沿 Z=0 的水平墙 + 沿 X=0 的垂直墙，中央各留 6m 通道 ===
-    const gap = 3;          // 通道半宽（总宽 6m）
+    // === "田"字隔墙：沿 Z=0 的水平墙 + 沿 X=0 的垂直墙，中央各留 6m 通道；
+    //     四段隔墙中点各开一个 2m 宽的窄洞（~2 个身位）供玩家绕道穿插 ===
+    const gap = 3;          // 中央十字路口通道半宽（总宽 6m）
     const divH = 3.5;       // 隔墙高度
     const divT = 0.4;       // 隔墙厚度
+    const passHalf = 1;     // 侧面过道洞口半宽（总宽 2m）
+    const segLen = half - gap;                        // 单段隔墙总长（21m）
+    const segCenter = (gap + half) / 2;               // 单段隔墙中心坐标绝对值（13.5）
+    const subLen = (segLen - passHalf * 2) / 2;       // 开洞后每小段长度（9.5m）
+    const subOff = passHalf + subLen / 2;             // 小段中心到原段中心的偏移（5.75m）
+    const wallOpts = { roughness: 0.5, metalness: 0.15, type: 'wall' };
 
-    // 水平隔墙（沿 X 轴，在 Z=0 处）：左段 + 右段
-    this.createBox({ x: half - gap, y: divH, z: divT }, new THREE.Vector3(-(gap + half) / 2, divH/2, 0), ICE_DARK, { roughness: 0.5, metalness: 0.15, type: 'wall' });
-    this.createBox({ x: half - gap, y: divH, z: divT }, new THREE.Vector3( (gap + half) / 2, divH/2, 0), ICE_DARK, { roughness: 0.5, metalness: 0.15, type: 'wall' });
+    // 水平隔墙（沿 X 轴，在 Z=0 处）：左段/右段各拆为两块，中间预留过道
+    [-1, 1].forEach(sx => {
+      const cx = sx * segCenter;                      // 该段中心
+      // 靠外墙侧的小段
+      this.createBox({ x: subLen, y: divH, z: divT }, new THREE.Vector3(cx + sx * subOff, divH/2, 0), ICE_DARK, wallOpts);
+      // 靠中央侧的小段
+      this.createBox({ x: subLen, y: divH, z: divT }, new THREE.Vector3(cx - sx * subOff, divH/2, 0), ICE_DARK, wallOpts);
+    });
 
-    // 垂直隔墙（沿 Z 轴，在 X=0 处）：前段 + 后段
-    this.createBox({ x: divT, y: divH, z: half - gap }, new THREE.Vector3(0, divH/2, -(gap + half) / 2), ICE_DARK, { roughness: 0.5, metalness: 0.15, type: 'wall' });
-    this.createBox({ x: divT, y: divH, z: half - gap }, new THREE.Vector3(0, divH/2,  (gap + half) / 2), ICE_DARK, { roughness: 0.5, metalness: 0.15, type: 'wall' });
+    // 垂直隔墙（沿 Z 轴，在 X=0 处）：前段/后段各拆为两块，中间预留过道
+    [-1, 1].forEach(sz => {
+      const cz = sz * segCenter;
+      this.createBox({ x: divT, y: divH, z: subLen }, new THREE.Vector3(0, divH/2, cz + sz * subOff), ICE_DARK, wallOpts);
+      this.createBox({ x: divT, y: divH, z: subLen }, new THREE.Vector3(0, divH/2, cz - sz * subOff), ICE_DARK, wallOpts);
+    });
 
     // === 冰块掩体（4 象限对称分布） ===
     // 玩家象限 Q1(+X,+Z) / Q2(+X,-Z)，敌人象限 Q3(-X,-Z) / Q4(-X,+Z)
