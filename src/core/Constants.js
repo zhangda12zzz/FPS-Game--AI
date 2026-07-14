@@ -20,10 +20,36 @@ export const WEAPONS = {
     name: '屠龙',
     damage: 55,
     headshotDamage: 100,
-    range: 4,
+    range: 3,
+    coneAngle: 60,        // 挥砍检测锥形半角(度)，前方±30°内的敌人均可命中
     fireRate: 500,
     slot: 3,
     auto: false,
+    // 真实模型 NI_3.glb 已拆成两部件，各自独立的 size/rot/pos，可分别微调
+    // match: 按 mesh 名/节点名匹配对应部件；size=归一化最长边; pos=[右,上,前]; rot=[x,y,z]
+    model: {
+      path: '/models/NI_3.glb',
+      parts: [
+        // 左手(张开的手/前臂) mesh "tripo_mesh_..."
+        { match: 'tripo_mesh', size: 0.2, pos: [-0.3, -0.4, -0.55], rot: [1, -1.8, 1] },
+        // 刀身+握持手 mesh "Mesh_1"
+        { match: 'Mesh_1', size: 0.72, pos: [0.3, -0.35, -0.62], rot: [0, -1.8, -0.6] },
+      ],
+    },
+    // 挥砍动画：仅动"刀身+握持手"部件，绕手腕轴旋转(刀尖行程大、手臂行程小)；左手永不动
+    // 相位1(蓄力): 刀尖上抬回拉；相位2(挥砍): 刀尖斜向前劈下；相位3: 回位
+    attack: {
+      duration: 420,        // 总时长(ms)
+      pivotFrac: [0.85, 0.15, 0.5], // 手腕轴位置[fx,fy,fz] 部件包围盒内占比(0=min,1=max)；握把在右下角
+      windupT: 0.28,        // 相位1结束占比
+      slashT: 0.6,          // 相位2结束占比
+      windupAngle: 0.45,    // 相位1 屏幕内滚转-刀尖向左下(rad, +z 逆时针)
+      slashAngle: -0.55,    // 相位2 刀尖向右上(rad)
+      windupPitch: 0.35,    // 相位1 俯仰-刀尖上抬(rad, +x 前倾/抬头)
+      slashPitch: -0.65,    // 相位2 俯仰-刀尖前劈(rad, -x 前俯/劈下)
+      windupShift: [-0.02, -0.03, 0.01], // 相位1 部件小幅位移[右,上,前]
+      slashShift: [0.05, 0.06, -0.02],   // 相位2 部件位移[右,上,前]
+    },
   },
   PISTOL: {
     name: '沙鹰-修罗',
@@ -36,12 +62,14 @@ export const WEAPONS = {
     reloadTime: 1000,
     recoil: 0.02,
     adsFov: 45,                 // 右键开镜视野（手枪放大幅度较小）
-    adsPos: [0.05, -0.11, -0.40],  // 开镜时武器靠右下
+    adsPos: [0.02, -0.09, -0.38],  // 开镜时武器靠右下
     adsScale: 0.62,             // 开镜时缩小显示（<1 变小）
-    muzzleOffset: [0.20, 0.27, 0.62], // 枪口特效偏移 [右, 下, 前]（手枪：更靠下、更近）
-    muzzleOffsetAds: [0.03, 0.10, 0.62], // 开镜时的枪口偏移（靠近准星中心）
+    muzzleOffset: [0.16, 0.20, 0.62], // 枪口特效偏移 [右, 下, 前]（手枪：更靠下、更近）
+    muzzleOffsetAds: [0.03, 0.10, 2.1], // 开镜时的枪口偏移（靠近准星中心）
     slot: 2,
     auto: false,
+    // 真实模型 XIU_2.glb（枪管沿 X 轴，枪口在 -X 端，ry=-90°使枪口朝屏幕内）
+    model: { path: '/models/XIU_2.glb', size: 0.26, pos: [0.17, -0.25, -0.40], rot: [0, -Math.PI / 2, 0] },
   },
   RIFLE: {
     name: 'AK47-火麒麟',
@@ -54,11 +82,13 @@ export const WEAPONS = {
     reloadTime: 2000,
     recoil: 0.035,
     adsFov: 38,                 // 右键开镜视野（步枪放大幅度较大）
-    adsPos: [0, -0.05, -0.38],  // 开镜时武器抵近瞳孔位置
-    muzzleOffset: [0.11, 0.16, 0.8], // 枪口特效偏移 [右, 下, 前]（步枪：枪管长、更靠前）
-    muzzleOffsetAds: [0.0, 0.06, 0.8], // 开镜时的枪口偏移（靠近准星中心）
+    adsPos: [0.15, -0.20, -0.45],  // 开镜时武器抵近瞳孔位置
+    muzzleOffset: [0.08, 0.12, 0.8], // 枪口特效偏移 [右, 下, 前]（步枪：枪管长、更靠前）
+    muzzleOffsetAds: [0.08, 0.1, 0.8], // 开镜时的枪口偏移（靠近准星中心）
     slot: 1,
     auto: true,
+    // 真实模型 HUO_1.glb（枪管沿 X 轴，枪口在 -X 端，ry=-90°使枪口朝屏幕内）
+    model: { path: '/models/HUO_1.glb', size: 0.42, pos: [0.15, -0.20, -0.45], rot: [0, -Math.PI / 2, 0] },
   }
 };
 

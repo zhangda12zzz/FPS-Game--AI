@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Rifle } from './arsenal/Rifle.js';
 import { Pistol } from './arsenal/Pistol.js';
 import { Knife } from './arsenal/Knife.js';
+import { preloadWeaponModels } from './WeaponModels.js';
 
 export class WeaponManager {
   constructor(camera, scene) {
@@ -16,6 +17,9 @@ export class WeaponManager {
   }
 
   async init() {
+    // 预加载三把武器的真实 GLB 模型(失败自动回退绿幕平面)
+    await preloadWeaponModels();
+
     // 按槽位顺序: 0=步枪, 1=手枪, 2=刀
     const rifle = new Rifle();
     const pistol = new Pistol();

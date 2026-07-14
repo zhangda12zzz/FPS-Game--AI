@@ -556,25 +556,49 @@ export class Game {
     const muzzleWorldPos = this._getPlayerMuzzlePos();
     // 刀（slot 3）为近战武器，不显示弹道与枪口火光
     const showMuzzleFx = config.slot !== 3;
+    // 刀为锥形区域攻击：前方±coneAngle°内的敌人均可命中
+    const isKnifeCone = config.slot === 3 && config.coneAngle > 0;
 
-    if (hits.length > 0) {
-      const hit = hits[0];
-      const enemy = hit.object.userData.enemy;
+    // 确定命中：精确射线优先，刀未命中时回退到锥形区域检测
+    let hit = hits.length > 0 ? hits[0] : null;
+    let coneHitEnemy = null;
+    if (!hit && isKnifeCone) {
+      const cam = this.sceneManager.camera;
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion).normalize();
+      const coneCos = Math.cos(config.coneAngle * Math.PI / 180);
+      let bestDist = Infinity;
+      for (const enemy of this.enemyManager.getEnemies()) {
+        if (enemy.isDead) continue;
+        const toE = enemy.group.position.clone().sub(cam.position);
+        const dist = toE.length();
+        if (dist > config.range) continue;
+        if (toE.normalize().dot(fwd) >= coneCos && dist < bestDist) {
+          bestDist = dist;
+          coneHitEnemy = enemy;
+        }
+      }
+    }
+
+    if (hit || coneHitEnemy) {
+      const enemy = coneHitEnemy || hit.object.userData.enemy;
+      const hitPoint = hit ? hit.point : enemy.group.position.clone();
+      const hitObj = hit ? hit.object : null;
+      // 精确射线可爆头，锥形命中视为身体攻击
+      const isHeadshot = hit ? (hit.object.userData.isHead === true) : false;
 
       // 弹道
-      if (showMuzzleFx) this.bulletTracer.create(muzzleWorldPos, hit.point);
+      if (showMuzzleFx) this.bulletTracer.create(muzzleWorldPos, hitPoint);
 
       // 血液
-      this.bloodSplatter.create(hit.point, hit.face?.normal || new THREE.Vector3(0, 1, 0));
+      this.bloodSplatter.create(hitPoint, hit?.face?.normal || new THREE.Vector3(0, 1, 0));
 
-      // 伤害（检查是否命中头部，爆头使用武器爆头伤害）
-      const isHeadshot = hit.object.userData.isHead === true;
+      // 伤害（爆头用爆头伤害，锥形命中为身体伤害）
       const dmg = isHeadshot
         ? (config.headshotDamage ?? Math.round(config.damage * (ENEMY.HEADSHOT_MULTIPLIER || 2.5)))
         : config.damage;
       const hpBefore = enemy.health;
       const wasAlreadyDead = enemy.isDead;
-      enemy.takeDamage(dmg, { name: '玩家', isHeadshot: isHeadshot }, hit.object);
+      enemy.takeDamage(dmg, { name: '玩家', isHeadshot }, hitObj);
 
       // 命中肉体音效
       this.audioFx?.hitFlesh();
