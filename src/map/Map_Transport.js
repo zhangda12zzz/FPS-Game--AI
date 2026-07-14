@@ -69,15 +69,16 @@ export class Map_Transport extends MapLoader {
     ]);
 
     // === 低矮掩体（配合下蹲使用），镜像对称 ===
-    this._symCover(11, -8);
-    this._symCover(11, 8);
     this._symCover(20, 0);
-    this._symCover(30, -6);
-    this._symCover(30, 6);
 
-    // === 油桶装饰（镜像对称） ===
+    // === 油桶 / 木箱装饰（镜像对称） ===
     this._symOilDrum(10, 3);
     this._symOilDrum(21, -8);
+    // 双方老家各两个油桶（出生区内侧掩护）
+    this._symOilDrum(32, -4);
+    this._symOilDrum(32, 4);
+    this._symWoodCrate(22, 8, 1.0);
+    this._symWoodCrate(23, 7, 0.7);
 
     // === 甲板安全线（沿长边X） ===
     this._createDeckLine(0, 0.31, 0, 76, 0.15, 0xffaa00);

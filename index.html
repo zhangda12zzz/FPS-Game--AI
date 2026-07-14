@@ -16,6 +16,47 @@
       pointer-events: none; z-index: 100;
     }
 
+    /* === 狙击镜黑边视野（右键开镜时显示） === */
+    #scope-overlay {
+      position: fixed; inset: 0;
+      pointer-events: none; z-index: 210;
+      display: none;
+    }
+    #scope-overlay.show { display: block; }
+    /* 黑边遮罩：中心透明圆，四周纯黑 */
+    #scope-overlay .scope-mask {
+      position: absolute; inset: 0;
+      background: radial-gradient(circle at 50% 50%,
+        rgba(0,0,0,0) 0,
+        rgba(0,0,0,0) calc(42vh - 2px),
+        rgba(0,0,0,0.4) calc(42vh - 1px),
+        #000 42vh,
+        #000 100%);
+    }
+    /* 镜环边框 */
+    #scope-overlay .scope-ring {
+      position: absolute; top: 50%; left: 50%;
+      width: 84vh; height: 84vh;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      border: 2px solid rgba(0,0,0,0.95);
+      box-shadow: 0 0 0 1px rgba(90,90,90,0.35) inset;
+    }
+    /* 十字准线 */
+    #scope-overlay .scope-line-h,
+    #scope-overlay .scope-line-v {
+      position: absolute; background: rgba(0,0,0,0.85);
+    }
+    #scope-overlay .scope-line-h { left: 0; right: 0; top: 50%; height: 1px; transform: translateY(-0.5px); }
+    #scope-overlay .scope-line-v { top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-0.5px); }
+    /* 中心红点 */
+    #scope-overlay .scope-dot {
+      position: absolute; top: 50%; left: 50%;
+      width: 4px; height: 4px; border-radius: 50%;
+      background: #f33; transform: translate(-50%, -50%);
+      box-shadow: 0 0 4px rgba(255,50,50,0.8);
+    }
+
     /* === 小地图 === */
     #minimap {
       position: fixed; top: 12px; left: 12px;
@@ -502,6 +543,15 @@
   <canvas id="game-canvas"></canvas>
   <canvas id="crosshair" width="40" height="40"></canvas>
 
+  <!-- 狙击镜黑边视野 -->
+  <div id="scope-overlay">
+    <div class="scope-mask"></div>
+    <div class="scope-ring"></div>
+    <div class="scope-line-h"></div>
+    <div class="scope-line-v"></div>
+    <div class="scope-dot"></div>
+  </div>
+
   <!-- 小地图 -->
   <div id="minimap">
     <canvas id="minimap-canvas" width="175" height="190"></canvas>
@@ -633,8 +683,8 @@
     <div class="subtitle">CF风格第一人称射击游戏</div>
     <button class="start-btn" id="start-btn">开始游戏</button>
     <div class="controls">
-      WASD 移动 | 鼠标视角 | 左键射击 | 空格跳跃 | Ctrl 下蹲 | Shift 冲刺<br>
-      1/2/3 切换武器 | R 换弹 | E 拆包 | F2 敌人攻击 | F5 重新开始 | Tab 计分板
+      WASD 移动 | 鼠标视角 | 左键射击 | 右键开镜 | 空格跳跃 | Ctrl 下蹲 | Shift 冲刺<br>
+      1/2/3/4 切换武器 | R 换弹 | E 拆包 | F2 敌人攻击 | F5 重新开始 | Tab 计分板
     </div>
   </div>
 
@@ -651,6 +701,7 @@
     <div class="key-hint"><div class="hk">1</div><div class="kd">主武器 步枪</div></div>
     <div class="key-hint"><div class="hk">2</div><div class="kd">副武器 手枪</div></div>
     <div class="key-hint"><div class="hk">3</div><div class="kd">近战 匕首</div></div>
+    <div class="key-hint"><div class="hk">4</div><div class="kd">狙击枪 右键开镜</div></div>
     <div class="key-hint divider"></div>
     <div class="key-hint"><div class="hk">R</div><div class="kd">换弹</div></div>
     <div class="key-hint"><div class="hk">E</div><div class="kd">拆包</div></div>

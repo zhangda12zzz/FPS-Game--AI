@@ -53,14 +53,14 @@ export const WEAPONS = {
   },
   PISTOL: {
     name: '沙鹰-修罗',
-    damage: 25,
-    headshotDamage: 75,
+    damage: 35,
+    headshotDamage: 95,
     range: 100,
     fireRate: 300,
     magSize: 15,
     reserveAmmo: 20,
     reloadTime: 1000,
-    recoil: 0.02,
+    recoil: 0.1,
     adsFov: 45,                 // 右键开镜视野（手枪放大幅度较小）
     adsPos: [0.02, -0.09, -0.38],  // 开镜时武器靠右下
     adsScale: 0.62,             // 开镜时缩小显示（<1 变小）
@@ -71,16 +71,36 @@ export const WEAPONS = {
     // 真实模型 XIU_2.glb（枪管沿 X 轴，枪口在 -X 端，ry=-90°使枪口朝屏幕内）
     model: { path: '/models/XIU_2.glb', size: 0.26, pos: [0.17, -0.25, -0.40], rot: [0, -Math.PI / 2, 0] },
   },
+  SNIPER: {
+    name: '幻神-狙击枪',
+    damage: 100,                // 命中身体接近一击
+    headshotDamage: 300,        // 爆头必杀
+    range: 300,
+    fireRate: 1500,             // 栓动式，射速慢
+    magSize:5,
+    reserveAmmo: 20,
+    reloadTime: 4500,
+    recoil: 1.0,               // 后坐力极大，一枪猛抬枪（约 25°），需重新拉回镜子
+    adsFov: 18,                 // 右键开镜视野（狙击枪放大幅度最大）
+    adsPos: [0.15, -0.20, -0.45],  // 开镜时武器抵近瞳孔位置
+    muzzleOffset: [0.08, 0.12, 2], // 枪口特效偏移 [右, 下, 前]（枪管长）
+    muzzleOffsetAds: [0.08, 0.1, 0.9],
+    slot: 4,
+    auto: false,
+    scoped: true,               // 开镜时显示狙击镜黑边视野，且射击后自动退镜；未开镜无准星
+    // 真实模型 HUAN_4.glb（枪管沿 X 轴，枪口在 -X 端，ry=-90°使枪口朝屏幕内）
+    model: { path: '/models/HUAN_4.glb', size: 0.5, pos: [0.15, -0.22, -0.45], rot: [-0.1, -1.45, 0.2] },
+  },
   RIFLE: {
     name: 'AK47-火麒麟',
-    damage: 34,
-    headshotDamage: 100,
+    damage: 50,
+    headshotDamage: 150,
     range: 200,
     fireRate: 100,
     magSize: 40,
     reserveAmmo: 50,
     reloadTime: 2000,
-    recoil: 0.035,
+    recoil: 0.3,
     adsFov: 38,                 // 右键开镜视野（步枪放大幅度较大）
     adsPos: [0.15, -0.20, -0.45],  // 开镜时武器抵近瞳孔位置
     muzzleOffset: [0.08, 0.12, 0.8], // 枪口特效偏移 [右, 下, 前]（步枪：枪管长、更靠前）

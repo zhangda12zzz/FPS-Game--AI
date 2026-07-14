@@ -17,6 +17,11 @@ export class PlayerController {
     this.currentHeight = PLAYER.HEIGHT; // 当前视点高度（蹲伏时平滑降低）
     this.sensitivityScale = 1;          // 鼠标灵敏度系数（开镜时降低，更易瞄准）
     this.moveSpeedScale = 1;            // 移动速度系数（开镜时大幅降低）
+    
+    // 后坐力回落：射击时抬枪为叠加在基础朝向上的偏移，每帧平滑回到 0（回到原瞄准点）
+    this.recoilPitch = 0;
+    this.recoilYaw = 0;
+    this.recoilRecovery = 3;            // 回落速度（越大回落越快）
 
     this.velocity = new THREE.Vector3();
     this.direction = new THREE.Vector3();
@@ -60,6 +65,11 @@ export class PlayerController {
     this.yaw -= dx * sens;
     this.pitch -= dy * sens;
     this.pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.pitch));
+
+    // 后坐力回落：抬枪偏移平滑衰减到 0（指数衰减，与帧率无关）
+    const recDecay = 1 - Math.exp(-this.recoilRecovery * dt);
+    this.recoilPitch += (0 - this.recoilPitch) * recDecay;
+    this.recoilYaw += (0 - this.recoilYaw) * recDecay;
 
     // 移动
     // 下蹲状态（Ctrl）：降低视点高度与移动速度，且不可冲刺
@@ -106,7 +116,9 @@ export class PlayerController {
       this.body.position.z
     );
 
-    const euler = new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ');
+    // 同步相机朝向：基础 pitch/yaw 叠加后坐力回落偏移（末量已回 0 时回到原瞄准点）
+    const viewPitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.pitch + this.recoilPitch));
+    const euler = new THREE.Euler(viewPitch, this.yaw + this.recoilYaw, 0, 'YXZ');
     this.camera.quaternion.setFromEuler(euler);
   }
 
@@ -125,8 +137,9 @@ export class PlayerController {
   }
 
   applyRecoil(amount) {
-    this.pitch += amount * (0.5 + Math.random() * 0.5);
-    this.yaw += (Math.random() - 0.5) * amount * 0.5;
+    // 抬枪作为可回落的视角偏移（不修改玩家实际瞄准 pitch/yaw），随后在 update 中平滑回落到 0
+    this.recoilPitch += amount * (0.5 + Math.random() * 0.5);
+    this.recoilYaw += (Math.random() - 0.5) * amount * 0.5;
   }
 
   respawn(position) {
@@ -134,6 +147,8 @@ export class PlayerController {
     this.body.velocity.set(0, 0, 0);
     this.yaw = 0;
     this.pitch = 0;
+    this.recoilPitch = 0;
+    this.recoilYaw = 0;
     this.isCrouching = false;
     this.currentHeight = PLAYER.HEIGHT;
   }

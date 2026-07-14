@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Rifle } from './arsenal/Rifle.js';
 import { Pistol } from './arsenal/Pistol.js';
 import { Knife } from './arsenal/Knife.js';
+import { Sniper } from './arsenal/Sniper.js';
 import { preloadWeaponModels } from './WeaponModels.js';
 
 export class WeaponManager {
@@ -17,14 +18,15 @@ export class WeaponManager {
   }
 
   async init() {
-    // 预加载三把武器的真实 GLB 模型(失败自动回退绿幕平面)
+    // 预加载四把武器的真实 GLB 模型(失败自动回退绿幕平面)
     await preloadWeaponModels();
 
-    // 按槽位顺序: 0=步枪, 1=手枪, 2=刀
+    // 按槽位顺序: 0=步枪, 1=手枪, 2=刀, 3=狙击枪
     const rifle = new Rifle();
     const pistol = new Pistol();
     const knife = new Knife();
-    this.weapons = [rifle, pistol, knife];
+    const sniper = new Sniper();
+    this.weapons = [rifle, pistol, knife, sniper];
 
     // 创建所有武器模型，并记录腰射位置与开镜位置
     for (const w of this.weapons) {

@@ -5,7 +5,21 @@
 项目全部用原生 JavaScript（ES Modules）编写，不依赖 React/Vue 等框架，聚焦于"第一人称战斗体验"本身——武器手感、开镜放大、爆头反馈、C4 炸弹模式、CF 风格 HUD 等核心玩法。
 
 > 🎮 直接在浏览器中运行，无需服务端。
+<div align="center">
 
+<img src="README/image/image-2.png" width="48%">
+<img src="README/image/image-3.png" width="48%">
+
+<img src="README/image/image-4.png" width="48%">
+<img src="README/image/image-6.png" width="48%">
+
+<img src="README/image/image-9.png" width="48%">
+<img src="README/image/image-8.png" width="48%">
+
+<img src="README/image/image.png" width="48%">
+<img src="README/image/image-1.png" width="48%">
+
+</div>
 ---
 
 ## 📖 目录

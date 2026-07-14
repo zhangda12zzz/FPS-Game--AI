@@ -62,6 +62,7 @@ export class Game {
     this.isAiming = false;
     this.aimLocked = false;   // 点击切换模式的锁定状态
     this.aimPressTime = 0;    // 右键按下时刻（用于区分长按/点击）
+    this.aimSuppressed = false; // 狙击枪开镜射击后抑制开镜，直到松开右键再按
     this.baseFov = 75;      // 默认视野（与相机初始 FOV 一致）
     this.currentFov = 75;   // 平滑插值的当前视野
 
@@ -299,6 +300,13 @@ export class Game {
     // 隐藏结算面板（_endGame 会显示它）
     document.getElementById('result-overlay')?.classList.remove('show');
     document.getElementById('explosion-flash')?.classList.remove('show');
+    // 退出镜状态：隐藏狙击镜黑边并恢复默认准星
+    this.isAiming = false;
+    this.aimLocked = false;
+    this.aimSuppressed = false;
+    document.getElementById('scope-overlay')?.classList.remove('show');
+    const chEl = document.getElementById('crosshair');
+    if (chEl) chEl.style.display = 'block';
     // 清空世界（避免回到主界面后场景仍渲染地图）
     this._clearWorld();
     // 通知 main.js 显示地图选择界面（F5 / HUD 按钮等内部触发路径）
@@ -414,6 +422,9 @@ export class Game {
     // 开镜（右键 ADS）状态与相机 FOV 同步
     this._updateAim(dt);
 
+    // 狙击镜黑边视野与准星显隐同步
+    this._updateScope();
+
     // 拆弹时大幅降速，使玩家只能在小范围内移动
     if (this.isDefusing) {
       this.playerController.moveSpeedScale = Math.min(this.playerController.moveSpeedScale, 0.3);
@@ -454,6 +465,7 @@ export class Game {
       if (this.input.isKeyJustPressed('Digit1') || this.input.isKeyJustPressed('Numpad1')) this._switchWeapon(0);
       if (this.input.isKeyJustPressed('Digit2') || this.input.isKeyJustPressed('Numpad2')) this._switchWeapon(1);
       if (this.input.isKeyJustPressed('Digit3') || this.input.isKeyJustPressed('Numpad3')) this._switchWeapon(2);
+      if (this.input.isKeyJustPressed('Digit4') || this.input.isKeyJustPressed('Numpad4')) this._switchWeapon(3);
   
       // 射击 (非换弹中)
       if (!this.isReloading && this.input.isMouseDown()) {
@@ -631,6 +643,14 @@ export class Game {
 
     // 粒子
     if (showMuzzleFx) this.particleManager.createMuzzleParticles(muzzleWorldPos, 3);
+
+    // 狙击枪（栓动式）：开镜射击后自动退镜，需松开右键重新按下才能再次开镜
+    if (config.scoped && this.isAiming) {
+      this.isAiming = false;
+      this.aimLocked = false;
+      this.aimSuppressed = true;
+      this.weaponManager.setAiming(false);
+    }
   }
 
   _getPlayerMuzzlePos() {
@@ -678,17 +698,19 @@ export class Game {
       const CLICK_MS = 200; // 短于此时长视为“点击”，用于切换锁定
       if (this.input.isMouseJustPressed(2)) {
         this.aimPressTime = performance.now();
+        this.aimSuppressed = false; // 新一次按下右键解除射击后的开镜抑制
       }
       if (this.input.isMouseJustReleased(2)) {
         const dur = performance.now() - this.aimPressTime;
-        if (dur < CLICK_MS) {
+        if (dur < CLICK_MS && !this.aimSuppressed) {
           this.aimLocked = !this.aimLocked; // 点击：切换锁定开镜
         } else {
-          this.aimLocked = false;           // 长按松开：退出开镜
+          this.aimLocked = false;           // 长按松开（或已因射击退镜）：退出开镜
         }
+        this.aimSuppressed = false; // 松开右键后解除抑制，下次按下可重新开镜
       }
-      // 长按（右键按住）或点击锁定，任一成立即处于瞄准状态
-      this.isAiming = this.input.isMouseDown(2) || this.aimLocked;
+      // 长按（右键按住）或点击锁定，任一成立即处于瞄准状态；射击后抑制期间强制退镜
+      this.isAiming = !this.aimSuppressed && (this.input.isMouseDown(2) || this.aimLocked);
     } else {
       this.isAiming = false;
       this.aimLocked = false;
@@ -707,6 +729,30 @@ export class Game {
       cam.fov = this.currentFov;
       cam.updateProjectionMatrix();
     }
+  }
+
+  /**
+   * 狙击镜视野与准星显隐：
+   * - 当前为狙击枪且开镜接近完成时，显示黑边镜视野并隐藏枪模型；
+   * - 狙击枪未开镜时不显示默认准星（开镜后由镜自带十字线）；其他武器保持默认准星。
+   */
+  _updateScope() {
+    const weapon = this.weaponManager.getCurrentWeapon();
+    const isSniper = !!(weapon && weapon.config && weapon.config.scoped);
+    // 开镜插值进度超过阈值才视为已“贴镜”（避免过渡期黑边闪现）
+    const scoping = isSniper && this.isAiming &&
+      (this.weaponManager.getAimProgress ? this.weaponManager.getAimProgress() : 0) > 0.6;
+
+    const scopeEl = document.getElementById('scope-overlay');
+    if (scopeEl) scopeEl.classList.toggle('show', scoping);
+
+    // 贴镜时隐藏第一人称枪模型（只留镜视野）
+    const mesh = this.weaponManager.weaponMesh;
+    if (mesh) mesh.visible = !scoping;
+
+    // 狙击枪任何时候都不用默认准星（未开镜无准星，开镜由镜自带十字线）
+    const crosshairEl = document.getElementById('crosshair');
+    if (crosshairEl) crosshairEl.style.display = isSniper ? 'none' : 'block';
   }
 
   _startReload() {
@@ -770,6 +816,7 @@ export class Game {
     this.weaponManager.switchTo(slot);
     // 切枪时解除点击锁定的开镜状态，避免残留
     this.aimLocked = false;
+    this.aimSuppressed = false;
 
     // 更新武器名称显示
     const weaponNameEl = document.getElementById('hud-weapon-name');

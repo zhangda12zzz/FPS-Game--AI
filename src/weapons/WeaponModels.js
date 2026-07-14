@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-// 三把武器的真实 GLB 模型模板(预加载后缓存，切枪时克隆复用)
-const templates = { RIFLE: null, PISTOL: null, KNIFE: null };
+// 四把武器的真实 GLB 模型模板(预加载后缓存，切枪时克隆复用)
+const templates = { RIFLE: null, PISTOL: null, KNIFE: null, SNIPER: null };
 let _promise = null;
 
 const PATHS = {
   RIFLE: '/models/HUO_1.glb',   // AK47-火麒麟
   PISTOL: '/models/XIU_2.glb',  // 沙鹰-修罗
   KNIFE: '/models/NI_3.glb',    // 屠龙
+  SNIPER: '/models/HUAN_4.glb', // 幻神-狙击枪
 };
 
 /** 预加载全部武器模型；单个失败自动回退绿幕平面(该键保持 null) */
