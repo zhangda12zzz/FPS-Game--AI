@@ -79,9 +79,9 @@ export const WEAPONS = {
     fireRate: 1000,             // 栓动式，射速慢
     magSize:5,
     reserveAmmo: 20,
-    reloadTime: 3200,
+    reloadTime: 3000,
     recoil: 1.0,               // 后坐力极大，一枪猛抬枪（约 25°），需重新拉回镜子
-    adsFov: 18,                 // 右键开镜视野（狙击枪放大幅度最大）
+    adsFov: 10,                 // 右键开镜视野（狙击枪放大幅度最大，越小越放大：75/10 ≈ 7.5×）
     adsPos: [0.15, -0.20, -0.45],  // 开镜时武器抵近瞳孔位置
     muzzleOffset: [0.08, 0.12, 2], // 枪口特效偏移 [右, 下, 前]（枪管长）
     muzzleOffsetAds: [0.08, 0.1, 0.9],
