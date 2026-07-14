@@ -8,8 +8,25 @@ const mapSelectScreen = document.getElementById('map-select-screen');
 const mapGrid = document.getElementById('map-grid');
 const mapSelectBackBtn = document.getElementById('map-select-back');
 const canvas = document.getElementById('game-canvas');
+const loadingScreen = document.getElementById('loading-screen');
+const loadingText = document.getElementById('loading-text');
 
 let game = null;
+
+// ===================== 加载界面 =====================
+function showLoading(msg) {
+  if (loadingText && msg) loadingText.textContent = msg;
+  loadingScreen?.classList.add('show');
+}
+
+function hideLoading() {
+  loadingScreen?.classList.remove('show');
+}
+
+// 等待一次完整的绘制（双 rAF），确保同步阻塞工作前加载界面已绘制上屏
+function nextFrame() {
+  return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+}
 
 // ===================== 屏幕切换 =====================
 // 'start' | 'map-select' | 'game'
@@ -76,6 +93,8 @@ function renderMapGrid() {
 async function startGameWithMap(mapEntry) {
   try {
     hideMapSelect();
+    showLoading('正在加载资源...');
+    await nextFrame(); // 先把加载界面绘制出来，再执行后续阻塞式初始化
     if (!game) {
       // 首次启动：初始化游戏（武器/玩家/特效/炸弹协调器，但不加载地图）
       game = new Game(canvas);
@@ -89,10 +108,16 @@ async function startGameWithMap(mapEntry) {
     }
     // 加载指定地图并开始游戏循环
     await game.loadMap(mapEntry);
+    // 预热：编译着色器/上传贴图到 GPU，消除进游戏后首次切枪与首帧卡顿
+    showLoading('正在准备渲染...');
+    await nextFrame();
+    game.warmup();
+    hideLoading();
     game.start();
     canvas.requestPointerLock();
     currentScreen = 'game';
   } catch (err) {
+    hideLoading();
     console.error('Start with map failed:', err);
     showMapSelect();
     startBtn.textContent = '开始游戏';

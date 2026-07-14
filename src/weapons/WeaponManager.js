@@ -104,6 +104,27 @@ export class WeaponManager {
     this.weaponMesh.position.y += bob;
   }
 
+  /**
+   * 预热渲染：把四把武器逐一临时挂到相机上渲染一次，
+   * 触发各自材质的着色器编译与贴图 GPU 上传，避免进游戏后首次切枪卡顿。
+   * 完成后恢复当前装备的武器。
+   */
+  warmup(renderer, scene, camera) {
+    const restore = this.weaponMesh;
+    // 先移除当前武器，逐把挂载并渲染
+    if (restore) camera.remove(restore);
+    for (const w of this.weapons) {
+      if (!w.mesh) continue;
+      camera.add(w.mesh);
+      w.mesh.visible = true;
+      if (renderer.compile) renderer.compile(scene, camera);
+      renderer.render(scene, camera);
+      camera.remove(w.mesh);
+    }
+    // 恢复当前武器
+    if (restore) camera.add(restore);
+  }
+
   getCurrentWeapon() {
     return this.currentWeapon;
   }

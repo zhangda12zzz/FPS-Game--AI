@@ -210,6 +210,25 @@ export class Game {
   }
 
   /**
+   * 预热渲染：在加载界面遮盖下，强制编译武器/敌人/地图材质的着色器并上传贴图到 GPU，
+   * 消除进游戏后首次切枪、首次显示敌人/特效时的卡顿。仅在每局开始前调用一次。
+   */
+  warmup() {
+    const renderer = this.sceneManager.renderer;
+    const scene = this.sceneManager.scene;
+    const camera = this.sceneManager.camera;
+    try {
+      // 武器：四把逐一挂载渲染，触发首次切枪所需的着色器编译与贴图上传
+      this.weaponManager?.warmup?.(renderer, scene, camera);
+      // 其余场景物体（敌人/地图）：整体编译并渲染一次
+      if (renderer.compile) renderer.compile(scene, camera);
+      renderer.render(scene, camera);
+    } catch (e) {
+      console.warn('[warmup] 预热渲染失败(已忽略):', e);
+    }
+  }
+
+  /**
    * 清理场景中的可重生成对象（地图网格/物理体/敌人/炸弹实体），
    * 保留相机、灯光、雾效，以便重新加载新地图。
    */
@@ -217,11 +236,15 @@ export class Game {
     const scene = this.sceneManager.scene;
     const camera = this.sceneManager.camera;
 
-    // 1) 收集需要保留的对象：相机（含武器模型子节点）、灯光、枪口闪光池
+    // 1) 收集需要保留的对象：相机（含武器模型子节点）、灯光、枪口闪光池、特效对象池
     const muzzleMeshes = new Set();
     if (this.muzzleFlash) {
       this.muzzleFlash.flashes?.forEach(f => muzzleMeshes.add(f.mesh));
     }
+    // 特效对象池的网格需保留（不可 dispose 其共享几何体），仅在下方重置为非活跃
+    this.particleManager?.pool?.forEach(p => muzzleMeshes.add(p.mesh));
+    this.bulletTracer?.pool?.forEach(t => muzzleMeshes.add(t.mesh));
+    this.bloodSplatter?.pool?.forEach(s => muzzleMeshes.add(s.mesh));
     const toRemove = [];
     scene.children.forEach(child => {
       if (child === camera) return;           // 相机（武器挂在其下）
@@ -247,10 +270,10 @@ export class Game {
       this.physics.removeBody(this.physics.bodies[0]);
     }
 
-    // 3) 重置特效管理器内部引用（避免 update() 操作已 dispose 的网格）
-    if (this.particleManager) this.particleManager.particles = [];
-    if (this.bulletTracer)  this.bulletTracer.tracers  = [];
-    if (this.bloodSplatter) this.bloodSplatter.splatters = [];
+    // 3) 重置特效管理器对象池（回收所有活跃粒子，保留网格与共享几何体以复用）
+    this.particleManager?.reset?.();
+    this.bulletTracer?.reset?.();
+    this.bloodSplatter?.reset?.();
     if (this.muzzleFlash) {
       this.muzzleFlash.flashes?.forEach(f => { f.life = 0; if (f.mesh) f.mesh.visible = false; });
     }
@@ -553,14 +576,11 @@ export class Game {
     this.audioFx?.gunshot(shotType);
 
     // 射线检测
-    this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.sceneManager.camera);
+    this.raycaster.setFromCamera(this._screenCenter || (this._screenCenter = new THREE.Vector2(0, 0)), this.sceneManager.camera);
     this.raycaster.far = config.range || 200;
 
+    // 命中网格列表（getEnemyMeshes 内部已通过 getMeshes 标记 userData.enemy）
     const enemyMeshes = this.enemyManager.getEnemyMeshes();
-    // 给mesh标记所属敌人
-    this.enemyManager.getEnemies().forEach(e => {
-      if (!e.isDead) e.group.traverse(c => { if (c.isMesh) c.userData.enemy = e; });
-    });
 
     const hits = this.raycaster.intersectObjects(enemyMeshes, false);
 
@@ -1198,27 +1218,40 @@ export class Game {
   }
 
   _updateHUD() {
+    // 缓存 DOM 引用与上次写入值，仅在变化时更新 textContent，避免逐帧无谓的布局开销
+    const els = this._hudEls || (this._hudEls = {
+      ammo: document.getElementById('ammo-current'),
+      reserve: document.getElementById('ammo-reserve'),
+      health: document.getElementById('health-value'),
+      lives: document.getElementById('lives-display'),
+      score: document.getElementById('score-display'),
+    });
+    const last = this._hudLast || (this._hudLast = {});
+
     const weapon = this.weaponManager.getCurrentWeapon();
     if (weapon) {
-      const ammoEl = document.getElementById('ammo-current');
-      const reserveEl = document.getElementById('ammo-reserve');
-      if (ammoEl) ammoEl.textContent = weapon.ammo !== undefined ? weapon.ammo : '∞';
-      if (reserveEl) reserveEl.textContent = weapon.reserveAmmo !== undefined ? weapon.reserveAmmo : '-';
+      const ammo = weapon.ammo !== undefined ? weapon.ammo : '∞';
+      if (els.ammo && last.ammo !== ammo) { els.ammo.textContent = ammo; last.ammo = ammo; }
+      const reserve = weapon.reserveAmmo !== undefined ? weapon.reserveAmmo : '-';
+      if (els.reserve && last.reserve !== reserve) { els.reserve.textContent = reserve; last.reserve = reserve; }
     }
-    const healthEl = document.getElementById('health-value');
-    if (healthEl) healthEl.textContent = this.health.health;
-    const livesEl = document.getElementById('lives-display');
-    if (livesEl) livesEl.textContent = `♥${this.lives}`;
-
-    const scoreEl = document.getElementById('score-display');
-    if (scoreEl) scoreEl.textContent = `${this.kills} / ${this.deaths}`;
+    const hp = this.health.health;
+    if (els.health && last.health !== hp) { els.health.textContent = hp; last.health = hp; }
+    const lives = `♥${this.lives}`;
+    if (els.lives && last.lives !== lives) { els.lives.textContent = lives; last.lives = lives; }
+    const score = `${this.kills} / ${this.deaths}`;
+    if (els.score && last.score !== score) { els.score.textContent = score; last.score = score; }
   }
 
   _updateTimerDisplay() {
     const mins = Math.floor(this.timer / 60);
     const secs = Math.floor(this.timer % 60);
-    const el = document.getElementById('timer-display');
-    if (el) el.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+    const str = `${mins}:${secs.toString().padStart(2, '0')}`;
+    // 计时每秒才变一次，字符串未变则跳过 DOM 写入
+    if (this._lastTimerStr === str) return;
+    this._lastTimerStr = str;
+    const el = this._timerEl || (this._timerEl = document.getElementById('timer-display'));
+    if (el) el.textContent = str;
   }
 
   _drawMinimap() {

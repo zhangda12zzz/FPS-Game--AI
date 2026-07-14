@@ -400,6 +400,29 @@
     #map-select-screen .subtitle {
       font-size: 14px; color: #888; margin-bottom: 32px;
     }
+
+    /* 加载界面 */
+#loading-screen {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(135deg, #0f1525 0%, #16213e 60%, #0b2140 100%);
+      display: none; flex-direction: column;
+      justify-content: center; align-items: center;
+      z-index: 1100; color: #fff;
+    }
+#loading-screen.show { display: flex; }
+#loading-screen .loading-spinner {
+      width: 54px; height: 54px; border-radius: 50%;
+      border: 5px solid rgba(255,255,255,0.15);
+      border-top-color: #ff6600;
+      animation: loadingSpin 0.9s linear infinite;
+      margin-bottom: 26px;
+    }
+@keyframes loadingSpin { to { transform: rotate(360deg); } }
+#loading-screen .loading-title {
+      font-size: 30px; color: #ff0; letter-spacing: 6px; font-weight: bold;
+      text-shadow: 0 0 18px rgba(255,255,0,0.35);
+    }
+#loading-screen .loading-sub { margin-top: 12px; font-size: 14px; color: #9aa; letter-spacing: 2px; }
     .map-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(260px, 320px));
@@ -694,6 +717,13 @@
     <div class="subtitle">选择一张地图开始战斗</div>
     <div class="map-grid" id="map-grid"></div>
     <button id="map-select-back">返回主界面</button>
+  </div>
+
+  <!-- 加载界面 -->
+  <div id="loading-screen">
+    <div class="loading-spinner"></div>
+    <div class="loading-title">正在加载</div>
+    <div id="loading-text" class="loading-sub">正在加载资源...</div>
   </div>
 
   <!-- 右侧按键提示面板 -->

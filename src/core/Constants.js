@@ -56,10 +56,10 @@ export const WEAPONS = {
     damage: 35,
     headshotDamage: 95,
     range: 100,
-    fireRate: 300,
+    fireRate: 240,
     magSize: 15,
     reserveAmmo: 20,
-    reloadTime: 1000,
+    reloadTime: 800,
     recoil: 0.1,
     adsFov: 45,                 // 右键开镜视野（手枪放大幅度较小）
     adsPos: [0.02, -0.09, -0.38],  // 开镜时武器靠右下
@@ -76,10 +76,10 @@ export const WEAPONS = {
     damage: 100,                // 命中身体接近一击
     headshotDamage: 300,        // 爆头必杀
     range: 300,
-    fireRate: 1500,             // 栓动式，射速慢
+    fireRate: 1000,             // 栓动式，射速慢
     magSize:5,
     reserveAmmo: 20,
-    reloadTime: 4500,
+    reloadTime: 3200,
     recoil: 1.0,               // 后坐力极大，一枪猛抬枪（约 25°），需重新拉回镜子
     adsFov: 18,                 // 右键开镜视野（狙击枪放大幅度最大）
     adsPos: [0.15, -0.20, -0.45],  // 开镜时武器抵近瞳孔位置
@@ -100,7 +100,7 @@ export const WEAPONS = {
     magSize: 40,
     reserveAmmo: 50,
     reloadTime: 2000,
-    recoil: 0.3,
+    recoil: 0.2,
     adsFov: 38,                 // 右键开镜视野（步枪放大幅度较大）
     adsPos: [0.15, -0.20, -0.45],  // 开镜时武器抵近瞳孔位置
     muzzleOffset: [0.08, 0.12, 0.8], // 枪口特效偏移 [右, 下, 前]（步枪：枪管长、更靠前）

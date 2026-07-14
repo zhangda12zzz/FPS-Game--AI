@@ -499,7 +499,8 @@ export class Enemy {
 
   flashWhite() {
     this.originalMaterials.forEach(({ mesh }) => {
-      mesh.material.emissive = new THREE.Color(0xffffff);
+      if (mesh.material.emissive) mesh.material.emissive.setHex(0xffffff);
+      else mesh.material.emissive = new THREE.Color(0xffffff);
       mesh.material.emissiveIntensity = 0.8;
     });
     setTimeout(() => {
@@ -537,6 +538,11 @@ export class Enemy {
     this.bombPack = new THREE.Mesh(packGeo, packMat);
     this.bombPack.position.set(0, 1.15, -0.32); // 背包后侧
     this.group.add(this.bombPack);
+    // 若已缓存命中网格列表，同步加入背包使其可被射击命中
+    if (this._meshCache) {
+      this.bombPack.userData.enemy = this;
+      this._meshCache.push(this.bombPack);
+    }
   }
 
   takeDamage(amount, killerInfo, hitObject) {
@@ -989,6 +995,24 @@ export class Enemy {
     return this.gunMuzzlePos.clone().applyMatrix4(this.group.matrixWorld);
   }
 
+  /**
+   * 返回本敌人所有可命中网格（缓存）。
+   * 首次调用时遍历一次并把 userData.enemy 指回自身，供射线命中后反查敌人，
+   * 避免每次射击都对整组模型做一次 traverse 标记。
+   */
+  getMeshes() {
+    if (!this._meshCache) {
+      this._meshCache = [];
+      this.group.traverse((c) => {
+        if (c.isMesh) {
+          c.userData.enemy = this;
+          this._meshCache.push(c);
+        }
+      });
+    }
+    return this._meshCache;
+  }
+
   remove() {
     if (this.body) this.physics.removeBody(this.body);
     if (this.group.parent) this.group.parent.remove(this.group);
@@ -1010,7 +1034,7 @@ export class Enemy {
         // 清除头部mesh的红色发光
         (this.headParts || []).forEach(m => {
           if (m && m.material) {
-            m.material.emissive = new THREE.Color(0x000000);
+            if (m.material.emissive) m.material.emissive.setHex(0x000000);
             m.material.emissiveIntensity = 0;
           }
         });
@@ -1023,7 +1047,8 @@ export class Enemy {
     // 头部mesh变红发光
     (this.headParts || []).forEach(m => {
       if (m && m.material) {
-        m.material.emissive = new THREE.Color(0xff0000);
+        if (m.material.emissive) m.material.emissive.setHex(0xff0000);
+        else m.material.emissive = new THREE.Color(0xff0000);
         m.material.emissiveIntensity = 0.8;
       }
     });

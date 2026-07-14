@@ -26,6 +26,11 @@ export class PlayerController {
     this.velocity = new THREE.Vector3();
     this.direction = new THREE.Vector3();
 
+    // 复用的临时对象：避免 update() 逐帧分配（前/右向量、朝向欧拉角）
+    this._forward = new THREE.Vector3();
+    this._right = new THREE.Vector3();
+    this._euler = new THREE.Euler(0, 0, 0, 'YXZ');
+
     this._createPhysicsBody();
   }
 
@@ -85,8 +90,8 @@ export class PlayerController {
     // 开镜移动惩罚：处于瞄准状态时大幅降速
     speed *= this.moveSpeedScale;
 
-    const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
-    const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    const forward = this._forward.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+    const right = this._right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
 
     this.direction.set(0, 0, 0);
     if (this.input.isKeyPressed('KeyW')) this.direction.add(forward);
@@ -118,7 +123,7 @@ export class PlayerController {
 
     // 同步相机朝向：基础 pitch/yaw 叠加后坐力回落偏移（末量已回 0 时回到原瞄准点）
     const viewPitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.pitch + this.recoilPitch));
-    const euler = new THREE.Euler(viewPitch, this.yaw + this.recoilYaw, 0, 'YXZ');
+    const euler = this._euler.set(viewPitch, this.yaw + this.recoilYaw, 0, 'YXZ');
     this.camera.quaternion.setFromEuler(euler);
   }
 

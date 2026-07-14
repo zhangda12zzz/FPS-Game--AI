@@ -248,10 +248,15 @@ export class EnemyManager {
 
   getEnemies() { return this.enemies; }
   getEnemyMeshes() {
+    // 使用每个敌人缓存的网格列表（getMeshes 首次调用时已标记 userData.enemy），
+    // 避免每次射击都对所有敌人模型重新 traverse。
     const meshes = [];
-    this.enemies.forEach(enemy => {
-      if (!enemy.isDead) enemy.group.traverse(child => { if (child.isMesh) meshes.push(child); });
-    });
+    for (let i = 0; i < this.enemies.length; i++) {
+      const enemy = this.enemies[i];
+      if (enemy.isDead) continue;
+      const list = enemy.getMeshes();
+      for (let j = 0; j < list.length; j++) meshes.push(list[j]);
+    }
     return meshes;
   }
 }
